@@ -1,0 +1,72 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6">
+  <diagram name="Page-1" id="762e5trw2N0u7radrfAM">
+    <mxGraphModel dx="1226" dy="736" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1920" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-213" parent="1" style="rounded=1;whiteSpace=wrap;arcSize=50;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Mulai" vertex="1">
+          <mxGeometry height="39" width="63" x="229" y="1260" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-214" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="User/Petugas berada di Dashboard" vertex="1">
+          <mxGeometry height="78" width="260" x="130" y="1349" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-215" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Memilih menu Logout" vertex="1">
+          <mxGeometry height="54" width="213" x="154" y="1477" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-216" parent="1" style="rhombus;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Konfirmasi logout?" vertex="1">
+          <mxGeometry height="185" width="185" x="168" y="1581" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-217" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Kembali ke Dashboard" vertex="1">
+          <mxGeometry height="54" width="218" x="20" y="1840" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-219" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Hapus session/token" vertex="1">
+          <mxGeometry height="54" width="207" x="288" y="1840" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-220" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Redirect ke Halaman Login" vertex="1">
+          <mxGeometry height="54" width="252" x="266" y="1944" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-221" parent="1" style="rounded=1;whiteSpace=wrap;arcSize=50;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Selesai" vertex="1">
+          <mxGeometry height="39" width="74" x="355" y="2048" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-222" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-213" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-214" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-223" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-214" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-215" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-224" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-215" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-216" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-225" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-216" style="startArrow=none;endArrow=block;exitX=0;exitY=0.99;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-217" value="Tidak">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-226" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-217" style="startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0;entryY=0.5;rounded=0;entryDx=0;entryDy=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-221" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="129" y="1951.9999999999995" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-227" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-216" style="startArrow=none;endArrow=block;exitX=1;exitY=0.99;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-219" value="Ya">
+          <mxGeometry relative="1" x="0.1186" y="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-228" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-219" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-220" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-229" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-220" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.49;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-221" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,89 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" version="29.6.6">
+  <diagram name="Page-1" id="762e5trw2N0u7radrfAM">
+    <mxGraphModel dx="1209" dy="719" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1920" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-1" parent="1" style="rounded=1;whiteSpace=wrap;arcSize=50;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Mulai" vertex="1">
+          <mxGeometry height="39" width="63" x="319" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-2" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Input Email &amp; Password" vertex="1">
+          <mxGeometry height="39" width="222" x="240" y="109" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-3" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=10;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Database User" vertex="1">
+          <mxGeometry height="75" width="117" x="205" y="198" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-4" parent="1" style="rhombus;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Data login valid?" vertex="1">
+          <mxGeometry height="172" width="172" x="178" y="323" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-5" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Proses autentikasi" vertex="1">
+          <mxGeometry height="54" width="189" x="28" y="573" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-6" parent="1" style="whiteSpace=wrap;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Masuk ke Dashboard" vertex="1">
+          <mxGeometry height="54" width="204" x="20" y="738" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-7" parent="1" style="rounded=1;whiteSpace=wrap;arcSize=50;strokeWidth=2;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Selesai" vertex="1">
+          <mxGeometry height="39" width="74" x="314" y="921" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-8" parent="1" style="shape=parallelogram;perimeter=parallelogramPerimeter;fixedSize=1;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Tampilkan pesan &quot;Email atau password salah&quot;" vertex="1">
+          <mxGeometry height="63" width="278" x="266" y="569" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-9" parent="1" style="rhombus;strokeWidth=2;whiteSpace=wrap;fillColor=light-dark(#eeeeee,#1f2020);strokeColor=light-dark(#999999,#cccccc);fontColor=light-dark(#333333,#cccccc);" value="Coba login lagi?" vertex="1">
+          <mxGeometry height="165" width="165" x="410" y="682" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-10" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-1" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-2" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-11" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-2" style="startArrow=none;endArrow=block;exitX=0.33;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-3" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-12" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-3" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-4" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-13" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-4" style="startArrow=none;endArrow=block;exitX=0;exitY=0.93;entryX=0.5;entryY=0.01;rounded=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-5" value="Ya">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="123" y="449" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-14" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-5" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1.01;entryX=0.5;entryY=-0.01;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-6" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-15" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-6" style="startArrow=none;endArrow=block;exitX=0.5;exitY=0.99;entryX=0;entryY=0.27;rounded=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-7" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-16" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-4" style="startArrow=none;endArrow=block;exitX=1;exitY=0.93;entryX=0.5;entryY=0;rounded=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-8" value="Tidak">
+          <mxGeometry relative="1" x="0.2142" y="3" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="405" y="449" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-17" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-8" style="startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.09;entryY=0;rounded=0;" target="7Ni1O7FVT8fDc7-D9GDi-9" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-18" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-9" style="startArrow=none;endArrow=block;exitX=0.9;exitY=0;entryX=0.95;entryY=1;rounded=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-2" value="Ya">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="610" y="719" />
+              <mxPoint x="610" y="146" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="7Ni1O7FVT8fDc7-D9GDi-19" edge="1" parent="1" source="7Ni1O7FVT8fDc7-D9GDi-9" style="startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=1;entryY=0.13;rounded=0;edgeStyle=orthogonalEdgeStyle;" target="7Ni1O7FVT8fDc7-D9GDi-7" value="Tidak">
+          <mxGeometry relative="1" x="0.1567" y="-3" as="geometry">
+            <mxPoint x="-1" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
