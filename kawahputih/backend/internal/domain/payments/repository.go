@@ -13,6 +13,7 @@ type Repository interface {
 	FindByID(ctx context.Context, id string) (*Payment, error)
 	FindLatestByBooking(ctx context.Context, bookingID string) (*Payment, error)
 	FindByMidtransOrderID(ctx context.Context, orderID string) (*Payment, error)
+	FindByEWallet(ctx context.Context, ewallet string) (*Payment, error)
 	ListAll(ctx context.Context, offset, limit int, status string) ([]Payment, int64, error)
 	ExpirePendingByBooking(ctx context.Context, bookingID string) (int64, error)
 	CountByStatus(ctx context.Context) (map[string]int64, error)
@@ -59,6 +60,18 @@ func (r *repository) FindLatestByBooking(ctx context.Context, bookingID string) 
 func (r *repository) FindByMidtransOrderID(ctx context.Context, orderID string) (*Payment, error) {
 	var p Payment
 	err := r.db.WithContext(ctx).Where("midtrans_order_id = ?", orderID).First(&p).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *repository) FindByEWallet(ctx context.Context, ewallet string) (*Payment, error) {
+	var p Payment
+	err := r.db.WithContext(ctx).Where("ewallet_number = ?", ewallet).Order("created_at DESC").First(&p).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

@@ -13,6 +13,7 @@ type Repository interface {
 	Delete(ctx context.Context, id string) error
 	FindByID(ctx context.Context, id string) (*Item, error)
 	List(ctx context.Context, offset, limit int, category string) ([]Item, int64, error)
+	Search(ctx context.Context, query string, offset, limit int) ([]Item, int64, error)
 }
 
 type repository struct{ db *gorm.DB }
@@ -45,6 +46,23 @@ func (r *repository) List(ctx context.Context, offset, limit int, category strin
 	q := r.db.WithContext(ctx).Model(&Item{})
 	if category != "" {
 		q = q.Where("category = ?", category)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var items []Item
+	if err := q.Order("sort_order ASC, created_at DESC").Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+func (r *repository) Search(ctx context.Context, query string, offset, limit int) ([]Item, int64, error) {
+	q := r.db.WithContext(ctx).Model(&Item{})
+	if query != "" {
+		search := "%" + query + "%"
+		q = q.Where("title LIKE ? OR category LIKE ?", search, search)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

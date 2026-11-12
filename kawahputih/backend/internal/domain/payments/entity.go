@@ -21,7 +21,6 @@ func (b *Base) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// Payment mencatat sisi uang dari booking. Satu booking punya satu payment aktif; percobaan FAILED bisa dicoba ulang di baris yang sama sampai jendela pembayaran habis. Field Midtrans opsional.
 type Payment struct {
 	Base
 	BookingID        string     `gorm:"type:char(36);uniqueIndex;not null" json:"booking_id"`
@@ -34,11 +33,11 @@ type Payment struct {
 	MidtransRedirect string     `gorm:"type:varchar(500)" json:"midtrans_redirect_url,omitempty"`
 	PaidAt           *time.Time `json:"paid_at,omitempty"`
 	ExpiredAt        time.Time  `gorm:"not null" json:"expired_at"`
+	EWalletNumber    string     `gorm:"type:varchar(50)" json:"ewallet_number,omitempty"`
 }
 
 func (Payment) TableName() string { return "payments" }
 
-// Metode pembayaran untuk pengunjung. QRIS adalah default saat booking dibuat; pengunjung boleh beralih ke yang lain sebelum membayar.
 const (
 	MethodQRIS      = "QRIS"
 	MethodGoPay     = "GOPAY"
@@ -52,9 +51,18 @@ const (
 	MethodCard      = "CARD"
 	MethodAlfamart  = "ALFAMART"
 	MethodIndomaret = "INDOMARET"
+
+	EwalletGoPay     = "GOPAY"
+	EwalletOVO       = "OVO"
+	EwalletDANA      = "DANA"
+	EwalletShopeePay = "SHOPEEPAY"
+
+	EwalletBCAVA     = "BCA_VA"
+	EwalletBNIVA     = "BNI_VA"
+	EwalletMandiriVA = "MANDIRI_VA"
+	EwalletBRIVA     = "BRI_VA"
 )
 
-// Methods adalah himpunan yang diterima untuk validasi request, disinkronkan dengan konstanta di atas dan daftar metode frontend.
 var Methods = []string{
 	MethodQRIS,
 	MethodGoPay, MethodOVO, MethodDANA, MethodShopeePay,
@@ -63,14 +71,50 @@ var Methods = []string{
 	MethodAlfamart, MethodIndomaret,
 }
 
-// ValidMethod menyatakan apakah kode metode didukung.
-func ValidMethod(method string) bool {
-	for _, m := range Methods {
-		if m == method {
+var EwalletNumbers = []string{
+	EwalletGoPay, EwalletOVO, EwalletDANA, EwalletShopeePay,
+	EwalletBCAVA, EwalletBNIVA, EwalletMandiriVA, EwalletBRIVA,
+}
+
+func ValidMethod(m string) bool {
+	for _, v := range Methods {
+		if v == m {
 			return true
 		}
 	}
 	return false
+}
+
+func ValidEWalletNumber(v string) bool {
+	for _, n := range EwalletNumbers {
+		if n == v {
+			return true
+		}
+	}
+	return false
+}
+
+func EwalletNumberFromMethod(method string) string {
+	switch method {
+	case MethodGoPay:
+		return EwalletGoPay
+	case MethodOVO:
+		return EwalletOVO
+	case MethodDANA:
+		return EwalletDANA
+	case MethodShopeePay:
+		return EwalletShopeePay
+	case MethodBCAVA:
+		return EwalletBCAVA
+	case MethodBNIVA:
+		return EwalletBNIVA
+	case MethodMandiriVA:
+		return EwalletMandiriVA
+	case MethodBRIVA:
+		return EwalletBRIVA
+	default:
+		return ""
+	}
 }
 
 const (
@@ -82,5 +126,4 @@ const (
 	StatusRefunded   = "REFUNDED"
 )
 
-// PaymentWindow adalah berapa lama pembayaran pending tetap bisa dibayar. Cocok dengan sweep booking kedaluwarsa scheduler (30 menit).
 const PaymentWindow = 30 * time.Minute

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var ErrInvalidToken = errors.New("jwtutil: invalid or expired token")
@@ -44,7 +45,7 @@ func (m *Manager) generate(userID, email string, roles []string, secret []byte, 
 	claims := Claims{
 		UserID: userID, Email: email, Roles: roles,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: m.issuer, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(expiresAt),
+			Issuer: m.issuer, ID: uuid.NewString(), IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

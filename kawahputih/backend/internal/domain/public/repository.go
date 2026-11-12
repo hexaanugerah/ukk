@@ -70,7 +70,7 @@ func (r *repository) ListFacilities(ctx context.Context, category string, active
 		q = q.Where("category = ?", category)
 	}
 	if activeOnly {
-		q = q.Where("is_active = ?", true)
+		q = q.Where("status = ? AND is_published = ?", "active", true)
 	}
 	var items []Facility
 	err := q.Find(&items).Error
@@ -83,7 +83,7 @@ func (r *repository) ListFAQs(ctx context.Context, category string, activeOnly b
 		q = q.Where("category = ?", category)
 	}
 	if activeOnly {
-		q = q.Where("is_active = ?", true)
+		q = q.Where("is_published = ?", true)
 	}
 	var items []FAQ
 	err := q.Find(&items).Error

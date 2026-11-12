@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
+	"sync"
 	"time"
 
 	"github.com/KawahPutih/backend/internal/domain/audit"
@@ -35,28 +37,30 @@ type MidtransGateway interface {
 	VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool
 }
 
-// AuditLogger adalah interface minimal yang dibutuhkan payments untuk audit logging.
 type AuditLogger interface {
 	LogSuccess(ctx context.Context, actorID, actorRole, action, targetType, targetID string, metadata map[string]interface{}, ip, ua string)
 	LogFailure(ctx context.Context, actorID, actorRole, action, targetType, targetID string, metadata map[string]interface{}, ip, ua string)
 }
 
 type Service struct {
-	repo     Repository
-	bookings BookingGateway
-	tickets  TicketIssuer
-	midtrans MidtransGateway
-	log      *zap.Logger
-	audit    AuditLogger
+	repo      Repository
+	bookings  BookingGateway
+	tickets   TicketIssuer
+	midtrans  MidtransGateway
+	log       *zap.Logger
+	audit     AuditLogger
+	env       string
+	webhookMu sync.Mutex
 }
 
-func NewService(repo Repository, bookings BookingGateway, tickets TicketIssuer, midtrans MidtransGateway, log *zap.Logger, audit AuditLogger) *Service {
-	return &Service{repo: repo, bookings: bookings, tickets: tickets, midtrans: midtrans, log: log, audit: audit}
+func NewService(repo Repository, bookings BookingGateway, tickets TicketIssuer, midtrans MidtransGateway, log *zap.Logger, audit AuditLogger, environment ...string) *Service {
+	env := "production"
+	if len(environment) > 0 {
+		env = environment[0]
+	}
+	return &Service{repo: repo, bookings: bookings, tickets: tickets, midtrans: midtrans, log: log, audit: audit, env: env}
 }
 
-// dipanggil domain booking lewat adapter bootstrap
-
-// StartPayment membuka pembayaran QRIS pending untuk booking yang baru dibuat. Idempoten per booking: bila sudah ada pembayaran yang bisa dibayar, dikembalikan apa adanya.
 func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int64) (*Payment, error) {
 	existing, err := s.repo.FindLatestByBooking(ctx, bookingID)
 	if err != nil {
@@ -75,10 +79,9 @@ func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int
 		Amount:          amount,
 		Status:          StatusPending,
 		ExpiredAt:       time.Now().Add(PaymentWindow),
-		MidtransOrderID: reference, // Use reference as Midtrans order ID
+		MidtransOrderID: reference,
 	}
 	if err := s.repo.Create(ctx, p); err != nil {
-		// Unique constraint di booking_id: pembuatan bersamaan menang, jadi baca ulang.
 		existing, err2 := s.repo.FindLatestByBooking(ctx, bookingID)
 		if err2 != nil || existing == nil {
 			return nil, apperror.Internal(err)
@@ -86,9 +89,7 @@ func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int
 		return existing, nil
 	}
 
-	// Bila gateway Midtrans tersedia, buat transaksinya
 	if s.midtrans != nil {
-		// Ambil snapshot booking untuk data pelanggan
 		snap, err := s.bookings.GetSnapshot(ctx, bookingID, "", true)
 		if err == nil && snap != nil {
 			redirectURL, err := s.midtrans.CreateTransaction(ctx, p.MidtransOrderID, amount, snap.VisitorName, snap.Email, "Kawah Putih Booking")
@@ -106,7 +107,6 @@ func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int
 	return p, nil
 }
 
-// ExpirePendingByBooking mengakhiri pembayaran non-final untuk booking (pembatalan booking / override admin).
 func (s *Service) ExpirePendingByBooking(ctx context.Context, bookingID string) error {
 	if _, err := s.repo.ExpirePendingByBooking(ctx, bookingID); err != nil {
 		return apperror.Internal(err)
@@ -114,16 +114,18 @@ func (s *Service) ExpirePendingByBooking(ctx context.Context, bookingID string) 
 	return nil
 }
 
-// HandleMidtransNotification memproses notifikasi webhook Midtrans
-func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, transactionStatus, fraudStatus, signatureKey, grossAmount string) error {
+func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount string) error {
+	if orderID == "" || transactionStatus == "" || statusCode == "" || grossAmount == "" || signatureKey == "" {
+		return apperror.Validation("Data notifikasi pembayaran tidak lengkap.")
+	}
 	if s.midtrans == nil {
 		return apperror.Internal(errors.New("midtrans gateway not configured"))
 	}
-
-	// Verifikasi signature
-	if !s.midtrans.VerifySignature(orderID, transactionStatus, grossAmount, signatureKey) {
+	if !s.midtrans.VerifySignature(orderID, statusCode, grossAmount, signatureKey) {
 		return apperror.Unauthorized("Permintaan pembayaran tidak valid.")
 	}
+	s.webhookMu.Lock()
+	defer s.webhookMu.Unlock()
 
 	p, err := s.repo.FindByMidtransOrderID(ctx, orderID)
 	if err != nil {
@@ -132,28 +134,48 @@ func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, trans
 	if p == nil {
 		return apperror.NotFound("Data pembayaran tidak ditemukan.")
 	}
+	amount, ok := new(big.Rat).SetString(grossAmount)
+	if !ok || amount.Cmp(new(big.Rat).SetInt64(p.Amount)) != 0 {
+		return apperror.Validation("Nominal notifikasi tidak sesuai dengan pembayaran.")
+	}
 
-	// Ambil snapshot booking untuk audit
-	snap, _ := s.bookings.GetSnapshot(ctx, p.BookingID, "", true)
+	snap, err := s.bookings.GetSnapshot(ctx, p.BookingID, "", true)
+	if err != nil {
+		return err
+	}
+	if snap == nil {
+		return apperror.NotFound("Data booking pembayaran tidak ditemukan.")
+	}
 
 	switch transactionStatus {
-	case "capture", "settlement":
-		if fraudStatus == "accept" || fraudStatus == "" {
+	case "capture":
+		if fraudStatus == "accept" {
 			return s.markPaidFromMidtrans(ctx, p, snap)
 		}
-		return s.markFailedFromMidtrans(ctx, p, snap)
+		if fraudStatus == "challenge" {
+			return s.markProcessingFromMidtrans(ctx, p)
+		}
+		return apperror.Validation("Fraud status notifikasi pembayaran tidak valid.")
+	case "settlement":
+		return s.markPaidFromMidtrans(ctx, p, snap)
 	case "pending":
 		return s.markProcessingFromMidtrans(ctx, p)
-	case "deny", "cancel", "expire":
+	case "deny", "cancel", "failure":
 		return s.markFailedFromMidtrans(ctx, p, snap)
+	case "expire":
+		if p.Status == StatusPaid || p.Status == StatusExpired {
+			return nil
+		}
+		_, err := s.expirePayment(ctx, p)
+		return err
 	default:
-		return nil // ignore unknown statuses
+		return nil
 	}
 }
 
 func (s *Service) markPaidFromMidtrans(ctx context.Context, p *Payment, snap *booking.Snapshot) error {
 	if p.Status == StatusPaid {
-		return nil // idempotent
+		return nil
 	}
 	now := time.Now()
 	p.Status = StatusPaid
@@ -171,7 +193,6 @@ func (s *Service) markPaidFromMidtrans(ctx context.Context, p *Payment, snap *bo
 		}
 	}
 
-	// Audit log
 	if s.audit != nil && snap != nil {
 		actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 		s.audit.LogSuccess(ctx, actorID, actorRole, audit.ActionPaymentProcess, "payment", p.ID,
@@ -181,7 +202,7 @@ func (s *Service) markPaidFromMidtrans(ctx context.Context, p *Payment, snap *bo
 }
 
 func (s *Service) markFailedFromMidtrans(ctx context.Context, p *Payment, snap *booking.Snapshot) error {
-	if p.Status == StatusFailed || p.Status == StatusExpired {
+	if p.Status == StatusFailed || p.Status == StatusExpired || p.Status == StatusPaid {
 		return nil
 	}
 	p.Status = StatusFailed
@@ -189,8 +210,6 @@ func (s *Service) markFailedFromMidtrans(ctx context.Context, p *Payment, snap *
 	if err := s.repo.Update(ctx, p); err != nil {
 		return apperror.Internal(err)
 	}
-
-	// Audit log
 	if s.audit != nil && snap != nil {
 		actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 		s.audit.LogFailure(ctx, actorID, actorRole, audit.ActionPaymentProcess, "payment", p.ID,
@@ -200,22 +219,18 @@ func (s *Service) markFailedFromMidtrans(ctx context.Context, p *Payment, snap *
 }
 
 func (s *Service) markProcessingFromMidtrans(ctx context.Context, p *Payment) error {
-	if p.Status == StatusProcessing || p.Status == StatusPaid {
+	if p.Status == StatusProcessing || p.Status == StatusPaid || p.Status == StatusFailed || p.Status == StatusExpired {
 		return nil
 	}
 	p.Status = StatusProcessing
 	return s.repo.Update(ctx, p)
 }
 
-// FindByMidtransOrderID mencari pembayaran berdasarkan order ID Midtrans
 func (s *Service) FindByMidtransOrderID(ctx context.Context, orderID string) (*Payment, error) {
 	return s.repo.FindByMidtransOrderID(ctx, orderID)
 }
 
-// alur untuk pengunjung
-
-// Process menjalankan pembayaran simulasi untuk metode yang dipilih pengunjung. `forced` memungkinkan tes/UI memilih hasil yang pasti; kosong berarti SUCCESS. `method` mencatat metode yang dipakai. Saat berhasil, booking menjadi PAID dan e-tiketnya diterbitkan; kegagalan penerbitan tiket hanya dicatat, tidak membatalkan pembayaran (tiket bisa diterbitkan ulang).
-func (s *Service) Process(ctx context.Context, bookingID, requesterID string, privileged bool, forced, method string) (*booking.BookingResponse, *Payment, string, error) {
+func (s *Service) Process(ctx context.Context, bookingID, requesterID string, privileged bool, forced, method, ewalletNumber string) (*booking.BookingResponse, *Payment, string, error) {
 	snap, err := s.bookings.GetSnapshot(ctx, bookingID, requesterID, privileged)
 	if err != nil {
 		return nil, nil, "", err
@@ -235,15 +250,20 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 		return resp, pay, "SUCCESS", nil
 	}
 
-	// Catat metode yang dipilih pengunjung sebelum hasil diterapkan agar baris pembayaran mencerminkan yang benar-benar dipakai.
-	if method != "" && pay.Method != method {
+	if method != "" {
+		if !ValidMethod(method) {
+			return nil, nil, "", apperror.Validation(fmt.Sprintf("Metode pembayaran %q tidak didukung.", method))
+		}
+		if ewalletNumber != "" && EwalletNumberFromMethod(method) == "" {
+			return nil, nil, "", apperror.Validation("Nomor e-Wallet hanya bisa disematkan untuk metode yang mendukung.")
+		}
 		pay.Method = method
+		pay.EWalletNumber = ewalletNumber
 		if err := s.repo.Update(ctx, pay); err != nil {
 			return nil, nil, "", apperror.Internal(err)
 		}
 	}
 
-	// Jendela yang sudah lewat menang atas hasil yang dipaksa.
 	if time.Now().After(pay.ExpiredAt) {
 		outcome, err := s.expirePayment(ctx, pay)
 		if err != nil {
@@ -254,7 +274,37 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 	}
 
 	outcome := forced
-	if outcome == "" {
+	if s.env != "local" {
+		if forced != "" {
+			return nil, nil, "", apperror.Validation("Status pembayaran harus ditentukan oleh Midtrans.")
+		}
+		if s.midtrans == nil {
+			return nil, nil, "", apperror.Internal(errors.New("midtrans gateway not configured"))
+		}
+		providerStatus, fraudStatus, statusErr := s.midtrans.GetTransactionStatus(ctx, pay.MidtransOrderID)
+		if statusErr != nil {
+			return nil, nil, "", apperror.Internal(statusErr)
+		}
+		switch providerStatus {
+		case "capture", "settlement":
+			if providerStatus == "capture" && fraudStatus != "accept" {
+				return nil, nil, "", apperror.Conflict("Pembayaran belum disetujui oleh penyedia.")
+			}
+			outcome = "SUCCESS"
+		case "pending":
+			if err := s.markProcessingFromMidtrans(ctx, pay); err != nil {
+				return nil, nil, "", err
+			}
+			resp, err := s.bookings.GetResponse(ctx, bookingID, requesterID, privileged)
+			return resp, pay, "PENDING", err
+		case "deny", "cancel", "failure":
+			outcome = "FAILED"
+		case "expire":
+			outcome = "EXPIRED"
+		default:
+			return nil, nil, "", apperror.Conflict("Status pembayaran dari penyedia belum dapat diproses.")
+		}
+	} else if outcome == "" {
 		outcome = "SUCCESS"
 	}
 	switch outcome {
@@ -270,13 +320,10 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 		}
 		if s.tickets != nil {
 			if _, err := s.tickets.IssueForBooking(ctx, snap); err != nil {
-				// Pembayaran berhasil tapi penerbitan tiket gagal; catat dengan jelas karena e-tiket bisa diterbitkan ulang lewat GET.
 				s.log.Error("ticket issuance after payment failed",
 					zap.String("booking_id", bookingID), zap.Error(err))
 			}
 		}
-
-		// Audit log: pembayaran berhasil
 		if s.audit != nil {
 			actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 			s.audit.LogSuccess(ctx, actorID, actorRole, audit.ActionPaymentProcess, "payment", pay.ID,
@@ -288,8 +335,6 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 		if err := s.repo.Update(ctx, pay); err != nil {
 			return nil, nil, "", apperror.Internal(err)
 		}
-
-		// Audit log: pembayaran gagal
 		if s.audit != nil {
 			actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 			s.audit.LogFailure(ctx, actorID, actorRole, audit.ActionPaymentProcess, "payment", pay.ID,
@@ -300,8 +345,6 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 		if err != nil {
 			return nil, nil, "", err
 		}
-
-		// Audit log: pembayaran kedaluwarsa
 		if s.audit != nil {
 			actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 			s.audit.LogFailure(ctx, actorID, actorRole, audit.ActionPaymentProcess, "payment", pay.ID,
@@ -318,7 +361,6 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 	return resp, pay, outcome, nil
 }
 
-// Expire mengakhiri pembayaran + booking secara manual (aksi pengunjung atau admin).
 func (s *Service) Expire(ctx context.Context, bookingID, requesterID string, privileged bool) error {
 	snap, err := s.bookings.GetSnapshot(ctx, bookingID, requesterID, privileged)
 	if err != nil {
@@ -335,8 +377,6 @@ func (s *Service) Expire(ctx context.Context, bookingID, requesterID string, pri
 		return apperror.NotFound("Data pembayaran tidak ditemukan.")
 	}
 	_, err = s.expirePayment(ctx, pay)
-
-	// Audit log: pembayaran diakhiri manual
 	if s.audit != nil && err == nil {
 		actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 		s.audit.LogSuccess(ctx, actorID, actorRole, audit.ActionPaymentExpire, "payment", pay.ID,
@@ -364,14 +404,12 @@ func (s *Service) GetByID(ctx context.Context, id, requesterID string, privilege
 	if pay == nil {
 		return nil, ErrNotFound
 	}
-	// Kepemilikan: hanya pemilik pembayaran (lewat booking) atau role berhak yang boleh melihat.
 	if _, err := s.bookings.GetSnapshot(ctx, pay.BookingID, requesterID, privileged); err != nil {
 		return nil, err
 	}
 	return toPaymentDTOPtr(pay), nil
 }
 
-// GetDetail mengembalikan tampilan gabungan pembayaran untuk /payments/booking/:id: field pembayaran di level atas plus `ticket` dan `booking` dalam satu payload.
 func (s *Service) GetDetail(ctx context.Context, bookingID, requesterID string, privileged bool) (*PaymentDetail, error) {
 	pay, err := s.repo.FindLatestByBooking(ctx, bookingID)
 	if err != nil {
@@ -380,7 +418,6 @@ func (s *Service) GetDetail(ctx context.Context, bookingID, requesterID string, 
 	if pay == nil {
 		return nil, ErrNotFound
 	}
-	// Kepemilikan: hanya pemilik booking atau role berhak yang boleh melihat.
 	if _, err := s.bookings.GetSnapshot(ctx, bookingID, requesterID, privileged); err != nil {
 		return nil, err
 	}
@@ -396,13 +433,10 @@ func (s *Service) GetDetail(ctx context.Context, bookingID, requesterID string, 
 	return detail, nil
 }
 
-// MarkDownloaded mencatat bahwa pengunjung mengunduh e-tiket. PDF-nya dibuat di sisi klien; ini hanya hook audit.
 func (s *Service) MarkDownloaded(ctx context.Context, bookingID, requesterID string, privileged bool) error {
 	_, err := s.bookings.GetSnapshot(ctx, bookingID, requesterID, privileged)
 	return err
 }
-
-// admin
 
 func (s *Service) ListAll(ctx context.Context, page, limit int, status string) ([]PaymentDTO, int64, error) {
 	offset := (page - 1) * limit
@@ -423,7 +457,6 @@ func (s *Service) ListAll(ctx context.Context, page, limit int, status string) (
 	return out, total, nil
 }
 
-// SetStatusByAdmin menerapkan override status pembayaran oleh admin dengan efek samping booking/tiket yang konsisten.
 func (s *Service) SetStatusByAdmin(ctx context.Context, paymentID, status string) (*Payment, *booking.BookingResponse, error) {
 	pay, err := s.repo.FindByID(ctx, paymentID)
 	if err != nil {
@@ -478,7 +511,7 @@ func (s *Service) SetStatusByAdmin(ctx context.Context, paymentID, status string
 		if _, err := s.expirePayment(ctx, pay); err != nil {
 			return nil, nil, err
 		}
-	default: // FAILED / PENDING / PROCESSING
+	default:
 		pay.Status = status
 		if status != StatusPaid {
 			pay.PaidAt = nil
@@ -488,7 +521,6 @@ func (s *Service) SetStatusByAdmin(ctx context.Context, paymentID, status string
 		}
 	}
 
-	// Audit log: status pembayaran diubah admin
 	if s.audit != nil && snap != nil {
 		actorID, actorRole, ip, ua := audit.ExtractAuditInfo(ctx)
 		s.audit.LogSuccess(ctx, actorID, actorRole, audit.ActionPaymentStatus, "payment", pay.ID,
@@ -502,7 +534,6 @@ func (s *Service) SetStatusByAdmin(ctx context.Context, paymentID, status string
 	return pay, resp, nil
 }
 
-// ExpireStalePending adalah hook scheduler: mengakhiri pembayaran (dan booking-nya) yang jendelanya lewat. Mengembalikan jumlah yang disapu.
 func (s *Service) ExpireStalePending(ctx context.Context, cutoff time.Time, limit int) (int, error) {
 	ids, err := s.bookings.StalePendingIDs(ctx, cutoff, limit)
 	if err != nil {
@@ -528,12 +559,35 @@ func (s *Service) ExpireStalePending(ctx context.Context, cutoff time.Time, limi
 	return swept, nil
 }
 
-// FindLatestForBooking membuka pencarian pembayaran mentah untuk adapter pengayaan daftar.
 func (s *Service) FindLatestForBooking(ctx context.Context, bookingID string) (*Payment, error) {
 	return s.repo.FindLatestByBooking(ctx, bookingID)
 }
 
-// generateReference menghasilkan referensi pembayaran (order id ala Midtrans).
+func (s *Service) GetByEWallet(ctx context.Context, ewallet string) (*Payment, error) {
+	if ewallet == "" {
+		return nil, apperror.Validation("Nomor e-Wallet wajib diisi.")
+	}
+	return s.repo.FindByEWallet(ctx, ewallet)
+}
+
+func (s *Service) SetEWalletNumber(ctx context.Context, paymentID, ewalletNumber string) (*Payment, error) {
+	pay, err := s.repo.FindByID(ctx, paymentID)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	if pay == nil {
+		return nil, ErrNotFound
+	}
+	if ewalletNumber != "" && EwalletNumberFromMethod(pay.Method) != ewalletNumber {
+		return nil, apperror.Validation("Nomor e-Wallet tidak sesuai dengan metode pembayaran.")
+	}
+	pay.EWalletNumber = ewalletNumber
+	if err := s.repo.Update(ctx, pay); err != nil {
+		return nil, apperror.Internal(err)
+	}
+	return pay, nil
+}
+
 func generateReference() string {
 	buf := make([]byte, 6)
 	_, _ = rand.Read(buf)

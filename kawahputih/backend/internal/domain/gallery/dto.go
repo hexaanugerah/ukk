@@ -2,14 +2,16 @@ package gallery
 
 type CreateRequest struct {
 	Title     string `json:"title" validate:"required,min=3,max=200"`
-	ImageURL  string `json:"image_url" validate:"required,url"`
+	ImageURL  string `json:"image_url" validate:"omitempty,url"`
+	ImageFile string `json:"image_file,omitempty" validate:"omitempty,min=1,max=200"`
 	Category  string `json:"category" validate:"omitempty,max=100"`
 	SortOrder int    `json:"sort_order"`
 }
 
 type UpdateRequest struct {
 	Title     string `json:"title" validate:"required,min=3,max=200"`
-	ImageURL  string `json:"image_url" validate:"required,url"`
+	ImageURL  string `json:"image_url" validate:"omitempty,url"`
+	ImageFile string `json:"image_file,omitempty" validate:"omitempty,min=1,max=200"`
 	Category  string `json:"category" validate:"omitempty,max=100"`
 	SortOrder int    `json:"sort_order"`
 }
@@ -43,4 +45,11 @@ func ToResponseList(items []*Item) []*Response {
 		out = append(out, ToResponse(i))
 	}
 	return out
+}
+
+func PreferFileImage(currentURL, fileRef string) string {
+	if fileRef != "" {
+		return fileRef
+	}
+	return currentURL
 }

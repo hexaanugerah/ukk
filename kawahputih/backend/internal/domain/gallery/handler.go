@@ -27,6 +27,12 @@ func (h *Handler) Create(c *gin.Context) {
 		response.ValidationFailed(c, errs)
 		return
 	}
+
+	if req.ImageFile != "" && !isValidImageFileRef(req.ImageFile) {
+		response.BadRequest(c, "image_file tidak valid", nil)
+		return
+	}
+
 	result, err := h.usecase.Create(c.Request.Context(), middleware.CurrentUserID(c), req)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
@@ -45,6 +51,11 @@ func (h *Handler) Update(c *gin.Context) {
 		response.ValidationFailed(c, errs)
 		return
 	}
+	if req.ImageFile != "" && !isValidImageFileRef(req.ImageFile) {
+		response.BadRequest(c, "image_file tidak valid", nil)
+		return
+	}
+
 	result, err := h.usecase.Update(c.Request.Context(), c.Param("id"), middleware.CurrentUserID(c), req)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
@@ -74,6 +85,17 @@ func (h *Handler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.Query("page"))
 	perPage, _ := strconv.Atoi(c.Query("limit"))
 	result, total, err := h.usecase.List(c.Request.Context(), page, perPage, c.Query("category"))
+	if err != nil {
+		apperror.WriteHTTP(c, err)
+		return
+	}
+	response.OKWithMeta(c, "gallery items retrieved", result, response.BuildMeta(page, perPage, total))
+}
+
+func (h *Handler) Search(c *gin.Context) {
+	page, _ := strconv.Atoi(c.Query("page"))
+	perPage, _ := strconv.Atoi(c.Query("limit"))
+	result, total, err := h.usecase.Search(c.Request.Context(), c.Query("q"), page, perPage)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
 		return

@@ -4,16 +4,21 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 type Config struct {
 	ServerKey    string
-	ClientKey    string
 	IsProduction bool
+	BaseURL      string
+	SnapBaseURL  string
 }
 
 type Gateway struct {
@@ -22,17 +27,34 @@ type Gateway struct {
 }
 
 func NewGateway(cfg Config) *Gateway {
-	return &Gateway{cfg: cfg, client: &http.Client{}}
-}
-
-func (g *Gateway) snapBaseURL() string {
-	if g.cfg.IsProduction {
-		return "https://app.midtrans.com/snap/v1"
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		if cfg.IsProduction {
+			baseURL = "https://api.midtrans.com/v2"
+		} else {
+			baseURL = "https://api.sandbox.midtrans.com/v2"
+		}
 	}
-	return "https://app.sandbox.midtrans.com/snap/v1"
+	snapBaseURL := cfg.SnapBaseURL
+	if snapBaseURL == "" {
+		if cfg.IsProduction {
+			snapBaseURL = "https://app.midtrans.com/snap/v1"
+		} else {
+			snapBaseURL = "https://app.sandbox.midtrans.com/snap/v1"
+		}
+	}
+	return &Gateway{
+		cfg: Config{
+			ServerKey:    cfg.ServerKey,
+			IsProduction: cfg.IsProduction,
+			BaseURL:      baseURL,
+			SnapBaseURL:  snapBaseURL,
+		},
+		client: &http.Client{Timeout: 20 * time.Second},
+	}
 }
 
-type snapRequest struct {
+type TransactionRequest struct {
 	TransactionDetails struct {
 		OrderID     string `json:"order_id"`
 		GrossAmount int64  `json:"gross_amount"`
@@ -43,79 +65,92 @@ type snapRequest struct {
 	} `json:"customer_details"`
 }
 
-type snapResponse struct {
-	Token         string   `json:"token"`
-	RedirectURL   string   `json:"redirect_url"`
-	ErrorMessages []string `json:"error_messages"`
-}
-
 func (g *Gateway) CreateTransaction(ctx context.Context, orderID string, grossAmount int64, customerName, customerEmail, itemName string) (string, error) {
-	var body snapRequest
-	body.TransactionDetails.OrderID = orderID
-	body.TransactionDetails.GrossAmount = grossAmount
-	body.CustomerDetails.FirstName = customerName
-	body.CustomerDetails.Email = customerEmail
-
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return "", err
+	if strings.TrimSpace(g.cfg.ServerKey) == "" {
+		return "", fmt.Errorf("midtrans server key is not configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.snapBaseURL()+"/transactions", bytes.NewReader(payload))
+	payload := TransactionRequest{}
+	payload.TransactionDetails.OrderID = orderID
+	payload.TransactionDetails.GrossAmount = grossAmount
+	payload.CustomerDetails.FirstName = customerName
+	payload.CustomerDetails.Email = customerEmail
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("midtrans marshal: %w", err)
+	}
+	url := g.cfg.SnapBaseURL + "/transactions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("midtrans request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(g.cfg.ServerKey, "")
-
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("midtrans do: %w", err)
 	}
 	defer resp.Body.Close()
-
-	var snapResp snapResponse
-	if err := json.NewDecoder(resp.Body).Decode(&snapResp); err != nil {
-		return "", err
+	var res struct {
+		Token         string   `json:"token"`
+		RedirectURL   string   `json:"redirect_url"`
+		ErrorMessages []string `json:"error_messages"`
 	}
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("midtrans: create transaction failed (%d): %v", resp.StatusCode, snapResp.ErrorMessages)
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("midtrans decode: %w", err)
 	}
-	return snapResp.RedirectURL, nil
+	if resp.StatusCode >= 300 || len(res.ErrorMessages) > 0 {
+		return "", fmt.Errorf("midtrans Snap transaction failed (%d): %v", resp.StatusCode, res.ErrorMessages)
+	}
+	if res.RedirectURL == "" {
+		return "", fmt.Errorf("midtrans Snap transaction response is missing redirect_url")
+	}
+	return res.RedirectURL, nil
 }
 
 func (g *Gateway) VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool {
+	if g.cfg.ServerKey == "" {
+		return false
+	}
 	raw := orderID + statusCode + grossAmount + g.cfg.ServerKey
 	sum := sha512.Sum512([]byte(raw))
-	return hex.EncodeToString(sum[:]) == signatureKey
+	expected := hex.EncodeToString(sum[:])
+	return len(expected) == len(signatureKey) && subtle.ConstantTimeCompare([]byte(expected), []byte(signatureKey)) == 1
 }
 
-// GetTransactionStatus mengecek status transaksi dari Midtrans
+type TransactionStatusResponse struct {
+	TransactionStatus string   `json:"transaction_status"`
+	FraudStatus       string   `json:"fraud_status"`
+	ErrorMessages     []string `json:"error_messages"`
+}
+
 func (g *Gateway) GetTransactionStatus(ctx context.Context, orderID string) (status, fraudStatus string, err error) {
-	url := g.snapBaseURL() + "/transactions/" + orderID + "/status"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if strings.TrimSpace(g.cfg.ServerKey) == "" {
+		return "", "", fmt.Errorf("midtrans server key is not configured")
+	}
+	requestURL := strings.TrimRight(g.cfg.BaseURL, "/") + "/" + url.PathEscape(orderID) + "/status"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("midtrans request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(g.cfg.ServerKey, "")
-
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("midtrans do: %w", err)
 	}
 	defer resp.Body.Close()
-
-	var result struct {
-		TransactionStatus string   `json:"transaction_status"`
-		FraudStatus       string   `json:"fraud_status"`
-		ErrorMessages     []string `json:"error_messages"`
-	}
+	var result TransactionStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("midtrans decode: %w", err)
 	}
 	if resp.StatusCode >= 300 {
-		return "", "", fmt.Errorf("midtrans: get transaction status failed (%d): %v", resp.StatusCode, result.ErrorMessages)
+		return "", "", fmt.Errorf("midtrans status failed (%d): %v", resp.StatusCode, result.ErrorMessages)
 	}
 	return result.TransactionStatus, result.FraudStatus, nil
+}
+
+func GenerateSignature(orderID, statusCode, grossAmount, serverKey string) string {
+	sum := sha512.Sum512([]byte(orderID + statusCode + grossAmount + serverKey))
+	return hex.EncodeToString(sum[:])
 }

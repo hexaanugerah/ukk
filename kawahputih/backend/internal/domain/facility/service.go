@@ -24,6 +24,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Facility, err
 		OperatingHours: req.OperatingHours,
 		Status:         req.Status,
 		IsPublished:    req.IsPublished,
+		Category:       req.Category,
 		SortOrder:      req.SortOrder,
 	}
 	if facility.Status == "" {
@@ -48,6 +49,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Fa
 	facility.OperatingHours = req.OperatingHours
 	facility.Status = req.Status
 	facility.IsPublished = req.IsPublished
+	facility.Category = req.Category
 	facility.SortOrder = req.SortOrder
 	if facility.Status == "" {
 		facility.Status = StatusActive

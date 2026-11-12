@@ -13,7 +13,7 @@ import (
 	"github.com/KawahPutih/backend/internal/domain/facility"
 	"github.com/KawahPutih/backend/internal/domain/faq"
 	"github.com/KawahPutih/backend/internal/domain/gallery"
-	"github.com/KawahPutih/backend/internal/domain/package"
+	tourismpackage "github.com/KawahPutih/backend/internal/domain/package"
 	"github.com/KawahPutih/backend/internal/domain/payments"
 	"github.com/KawahPutih/backend/internal/domain/public"
 	"github.com/KawahPutih/backend/internal/domain/role"
@@ -70,32 +70,28 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 	jwtManager := jwtutil.NewManager(cfg.JWT.AccessSecret, cfg.JWT.RefreshSecret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL, cfg.JWT.Issuer)
 	mailerClient := mailer.New(mailer.Config{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, User: cfg.SMTP.User, Password: cfg.SMTP.Password, From: cfg.SMTP.From}, log)
 
-	_ = midtrans.NewGateway(midtrans.Config{ServerKey: cfg.Midtrans.ServerKey, ClientKey: cfg.Midtrans.ClientKey, IsProduction: cfg.Midtrans.IsProduction})
-
 	roleRepo := role.NewRepository(db)
 	roleService := role.NewService(roleRepo)
 	roleUsecase := role.NewUsecase(roleService)
 	roleHandler := role.NewHandler(roleUsecase)
 
-	// domain auth
 	authRepo := auth.NewRepository(db)
 	authService := auth.NewService(authRepo, jwtManager, mailerClient, cfg.GoogleOAuth, cfg.App.FrontendURL, log)
 	authUsecase := auth.NewUsecase(authService, roleService)
 	authHandler := auth.NewHandler(authUsecase)
 
-	// domain user (manajemen staf)
 	userRepo := user.NewRepository(db)
 	userService := user.NewService(userRepo)
 	userUsecase := user.NewUsecase(userService, roleService)
 	userHandler := user.NewHandler(userUsecase)
 
-	// domain konten
 	articleRepo := article.NewRepository(db)
 	articleService := article.NewService(articleRepo)
 	articleHandler := article.NewHandler(article.NewUsecase(articleService))
 
 	galleryRepo := gallery.NewRepository(db)
-	galleryService := gallery.NewService(galleryRepo)
+	galleryStore := gallery.NewLocalDiskStore("/var/uploads/gallery")
+	galleryService := gallery.NewService(galleryRepo, galleryStore, "/uploads/gallery")
 	galleryHandler := gallery.NewHandler(gallery.NewUsecase(galleryService))
 
 	destinationInfoRepo := destinationinfo.NewRepository(db)
@@ -118,36 +114,30 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 	packageService := tourismpackage.NewService(packageRepo)
 	packageHandler := tourismpackage.NewHandler(tourismpackage.NewUsecase(packageService))
 
-	// domain tickettype (katalog)
 	ticketTypeRepo := tickettype.NewRepository(db)
 	ticketTypeService := tickettype.NewService(ticketTypeRepo)
 	ticketTypeHandler := tickettype.NewHandler(ticketTypeService, nil)
 
-	// adapter audit (dibuat lebih dulu agar service lain bisa memakainya)
 	auditRepo := audit.NewRepository(db)
 	auditService := audit.NewService(auditRepo)
 	auditLogger := &auditLoggerAdapter{svc: auditService}
 
-	// domain booking (multi-item)
 	bookingRepo := booking.NewRepository(db)
 	bookingService := new(booking.Service)
 	bookingUsecase := booking.NewUsecase(bookingService, &ticketPricerAdapter{svc: ticketTypeService, sold: bookingRepo})
 	bookingHandler := booking.NewHandler(bookingUsecase, nil)
 
-	// domain ticketing (e-tiket + scanner)
 	ticketingRepo := ticketing.NewRepository(db)
 	ticketingService := ticketing.NewService(ticketingRepo, &bookingCheckinAdapter{uc: bookingUsecase}, log, auditLogger)
 	ticketingUsecase := ticketing.NewUsecase(ticketingService)
 	ticketingHandler := ticketing.NewHandler(ticketingUsecase)
 
-	// domain payments
 	paymentsRepo := payments.NewRepository(db)
-	midtransGateway := midtrans.NewGateway(midtrans.Config{ServerKey: cfg.Midtrans.ServerKey, ClientKey: cfg.Midtrans.ClientKey, IsProduction: cfg.Midtrans.IsProduction})
-	paymentsService := payments.NewService(paymentsRepo, &bookingGatewayAdapter{uc: bookingUsecase}, &ticketIssuerAdapter{svc: ticketingService}, midtransGateway, log, auditLogger)
+	midtransGateway := midtrans.NewGateway(midtrans.Config{ServerKey: cfg.Midtrans.ServerKey, IsProduction: cfg.Midtrans.IsProduction})
+	paymentsService := payments.NewService(paymentsRepo, &bookingGatewayAdapter{uc: bookingUsecase}, &ticketIssuerAdapter{svc: ticketingService}, midtransGateway, log, auditLogger, cfg.App.Env)
 	paymentsUsecase := payments.NewUsecase(paymentsService)
 	paymentsHandler := payments.NewHandler(paymentsUsecase)
 
-	// isi bagian yang terikat belakangan (booking butuh payments + ticketing)
 	*bookingService = *booking.NewService(bookingRepo,
 		&paymentStarterAdapter{svc: paymentsService},
 		&ticketStatusSyncerAdapter{svc: ticketingService},
@@ -157,26 +147,21 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 
 	ticketTypeHandler = tickettype.NewHandler(ticketTypeService, &bookingSalesAdapter{lag: bookingRepo})
 
-	// domain analytics
 	analyticsRepo := analytics.NewRepository(db)
 	analyticsService := analytics.NewService(analyticsRepo)
 	analyticsHandler := analytics.NewHandler(analyticsService)
 
-	// domain audit
 	auditUsecase := audit.NewUsecase(auditService)
 	auditHandler := audit.NewHandler(auditUsecase)
 
-	// domain public
 	publicRepo := public.NewRepository(db)
 	publicService := public.NewService(publicRepo, ticketTypeService)
 	publicHandler := public.NewHandler(publicService)
 
-	// domain verification
 	verificationRepo := verification.NewRepository(db)
 	verificationService := verification.NewService(verificationRepo, ticketingService)
 	verificationHandler := verification.NewHandler(verificationService)
 
-	// domain visitors/staff
 	visitorsRepo := visitors.NewRepository(db)
 	visitorsService := visitors.NewService(visitorsRepo)
 	visitorsHandler := visitors.NewHandler(visitorsService)

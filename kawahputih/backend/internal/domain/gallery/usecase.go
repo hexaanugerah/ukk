@@ -47,6 +47,15 @@ func (u *Usecase) List(ctx context.Context, page, perPage int, category string) 
 	return toResponseList(items), total, nil
 }
 
+func (u *Usecase) Search(ctx context.Context, query string, page, perPage int) ([]Response, int64, error) {
+	page, perPage = normalizePaging(page, perPage)
+	items, total, err := u.service.Search(ctx, query, (page-1)*perPage, perPage)
+	if err != nil {
+		return nil, 0, err
+	}
+	return toResponseList(items), total, nil
+}
+
 func normalizePaging(page, perPage int) (int, int) {
 	if page < 1 {
 		page = 1

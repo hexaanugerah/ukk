@@ -9,6 +9,7 @@ type CreateRequest struct {
 	OperatingHours string `json:"operating_hours" validate:"omitempty,max=200"`
 	Status         string `json:"status" validate:"omitempty,oneof=active maintenance inactive"`
 	IsPublished    bool   `json:"is_published"`
+	Category       string `json:"category" validate:"omitempty,max=50"`
 	SortOrder      int    `json:"sort_order"`
 }
 
@@ -21,6 +22,7 @@ type UpdateRequest struct {
 	OperatingHours string `json:"operating_hours" validate:"omitempty,max=200"`
 	Status         string `json:"status" validate:"omitempty,oneof=active maintenance inactive"`
 	IsPublished    bool   `json:"is_published"`
+	Category       string `json:"category" validate:"omitempty,max=50"`
 	SortOrder      int    `json:"sort_order"`
 }
 
@@ -34,6 +36,7 @@ type Response struct {
 	OperatingHours string `json:"operating_hours"`
 	Status         string `json:"status"`
 	IsPublished    bool   `json:"is_published"`
+	Category       string `json:"category"`
 	SortOrder      int    `json:"sort_order"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
@@ -53,6 +56,7 @@ func ToResponse(f *Facility) *Response {
 		OperatingHours: f.OperatingHours,
 		Status:         f.Status,
 		IsPublished:    f.IsPublished,
+		Category:       f.Category,
 		SortOrder:      f.SortOrder,
 		CreatedAt:      f.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		UpdatedAt:      f.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),

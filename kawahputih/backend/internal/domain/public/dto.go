@@ -67,7 +67,7 @@ func ToFacilityResponse(f *Facility) *FacilityResponse {
 		Description: f.Description,
 		Icon:        f.Icon,
 		Category:    f.Category,
-		IsActive:    f.IsActive,
+		IsActive:    f.IsPublished && f.Status == "active",
 		SortOrder:   f.SortOrder,
 		CreatedAt:   f.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   f.UpdatedAt.Format(time.RFC3339),
@@ -100,7 +100,7 @@ func ToFAQResponse(f *FAQ) *FAQResponse {
 		Answer:    f.Answer,
 		Category:  f.Category,
 		SortOrder: f.SortOrder,
-		IsActive:  f.IsActive,
+		IsActive:  f.IsPublished,
 		CreatedAt: f.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: f.UpdatedAt.Format(time.RFC3339),
 	}

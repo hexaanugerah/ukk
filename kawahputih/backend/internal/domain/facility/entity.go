@@ -31,6 +31,7 @@ type Facility struct {
 	OperatingHours string  `gorm:"type:varchar(200)" json:"operating_hours"`
 	Status         string  `gorm:"type:varchar(20);not null;default:active;index" json:"status"`
 	IsPublished    bool    `gorm:"default:false;index" json:"is_published"`
+	Category       string  `gorm:"type:varchar(50);index" json:"category"`
 	SortOrder      int     `gorm:"default:0" json:"sort_order"`
 	CreatedBy      string  `gorm:"type:char(36);index" json:"created_by,omitempty"`
 	UpdatedBy      string  `gorm:"type:char(36)" json:"updated_by,omitempty"`

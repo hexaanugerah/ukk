@@ -14,7 +14,6 @@ import (
 	"github.com/KawahPutih/backend/internal/domain/ticketing"
 	"github.com/KawahPutih/backend/internal/scheduler"
 	applogger "github.com/KawahPutih/backend/pkg/logger"
-	"go.uber.org/zap"
 	gormlogger "gorm.io/gorm/logger"
 )
 
@@ -66,7 +65,7 @@ func (noopMidtransGateway) GetTransactionStatus(ctx context.Context, orderID str
 	return "", "", nil
 }
 func (noopMidtransGateway) VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool {
-	return true
+	return false
 }
 
 func main() {
@@ -80,7 +79,7 @@ func main() {
 
 	db, err := config.NewDatabase(cfg.Database, gormlogger.Warn)
 	if err != nil {
-		log.Fatal("scheduler: failed to connect to database", zap.Error(err))
+		log.Fatal("scheduler: failed to connect to configured database")
 	}
 
 	paymentsRepo := payments.NewRepository(db)

@@ -3,6 +3,8 @@ package seed
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,13 +80,14 @@ func seedRoles(ctx context.Context, db *gorm.DB) error {
 }
 
 type staffAccount struct {
-	name     string
-	email    string
-	phone    string
-	password string
-	roleName string
-	gate     string
-	shift    string
+	name        string
+	email       string
+	phone       string
+	password    string
+	passwordEnv string
+	roleName    string
+	gate        string
+	shift       string
 }
 
 // userRow menyisipkan langsung ke users dan mengembalikan id yang dibuat.
@@ -106,6 +109,22 @@ func (userRow) TableName() string { return "users" }
 
 const staffEmailDomain = "kawahputih.id"
 
+func staffAccountsFromEnv() []staffAccount {
+	configured := []staffAccount{
+		{name: "Administrator Kawah Putih", email: "admin@" + staffEmailDomain, phone: "081200000002", passwordEnv: "SEED_ADMIN_PASSWORD", roleName: role.RoleAdmin},
+		{name: "Manajer Kawah Putih", email: "manager@" + staffEmailDomain, phone: "081200000003", passwordEnv: "SEED_MANAGER_PASSWORD", roleName: role.RoleManager},
+		{name: "Petugas Kawah Putih", email: "petugas@" + staffEmailDomain, phone: "081200000004", passwordEnv: "SEED_PETUGAS_PASSWORD", roleName: role.RolePetugas, gate: "Gerbang 1", shift: "Pagi (07:00 - 15:00)"},
+	}
+	accounts := make([]staffAccount, 0, len(configured))
+	for _, account := range configured {
+		account.password = strings.TrimSpace(os.Getenv(account.passwordEnv))
+		if account.password != "" {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts
+}
+
 func seedUsers(ctx context.Context, db *gorm.DB) error {
 	// Bersihkan akun admin legacy dari seed lama yang emailnya salah format
 	// ("admin@kawahputih.idkawahputih.id") agar tidak mengganggu pembuatan akun yang benar.
@@ -119,13 +138,7 @@ func seedUsers(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 
-	accounts := []staffAccount{
-		// Password alfanumerik (tanpa karakter khusus) tapi tetap memenuhi kebijakan: min 8 karakter dengan huruf besar + kecil + angka.
-		{name: "Administrator Kawah Putih", email: "admin@" + staffEmailDomain, phone: "081200000002", password: "AdminKawahPutih123", roleName: role.RoleAdmin},
-		{name: "Manajer Kawah Putih", email: "manager@" + staffEmailDomain, phone: "081200000003", password: "ManagerKawahPutih123", roleName: role.RoleManager},
-		{name: "Petugas Kawah Putih", email: "petugas@" + staffEmailDomain, phone: "081200000004", password: "PetugasKawahPutih123", roleName: role.RolePetugas, gate: "Gerbang 1", shift: "Pagi (07:00 - 15:00)"},
-	}
-	for _, acc := range accounts {
+	for _, acc := range staffAccountsFromEnv() {
 		var count int64
 		if err := db.WithContext(ctx).Table("users").Where("email = ?", acc.email).Count(&count).Error; err != nil {
 			return err

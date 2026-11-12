@@ -1,9 +1,12 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -56,13 +59,26 @@ type GoogleOAuthConfig struct {
 }
 
 type MidtransConfig struct {
-	ServerKey, ClientKey string
-	IsProduction         bool
+	ServerKey    string
+	IsProduction bool
 }
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 	env := getEnv("APP_ENV", "local")
+	switch env {
+	case "local", "test", "staging", "production":
+	default:
+		return nil, fmt.Errorf("configuration error: unsupported APP_ENV %q", env)
+	}
+	productionDefault := "false"
+	if env == "production" {
+		productionDefault = "true"
+	}
+	midtransProduction, err := strconv.ParseBool(getEnv("MIDTRANS_IS_PRODUCTION", productionDefault))
+	if err != nil {
+		return nil, fmt.Errorf("configuration error: MIDTRANS_IS_PRODUCTION must be true or false")
+	}
 
 	cfg := &Config{
 		App: AppConfig{
@@ -91,25 +107,56 @@ func Load() (*Config, error) {
 			RedirectURL: getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/auth/google/callback"),
 		},
 		Midtrans: MidtransConfig{
-			ServerKey: getEnv("MIDTRANS_SERVER_KEY", ""), ClientKey: getEnv("MIDTRANS_CLIENT_KEY", ""),
-			IsProduction: getEnv("MIDTRANS_IS_PRODUCTION", "false") == "true",
+			ServerKey:    getEnv("MIDTRANS_SERVER_KEY", ""),
+			IsProduction: midtransProduction,
 		},
 	}
 
-	if env != "local" && (cfg.JWT.AccessSecret == "" || cfg.JWT.RefreshSecret == "") {
-		return nil, fmt.Errorf("config: JWT secrets must be set in %s environment", env)
+	for _, name := range []string{"DB_HOST", "DB_PORT", "DB_USER", "DB_NAME"} {
+		if strings.TrimSpace(os.Getenv(name)) == "" {
+			return nil, fmt.Errorf("Configuration error: required database setting %s is missing.", name)
+		}
 	}
-	if cfg.JWT.AccessSecret == "" {
-		cfg.JWT.AccessSecret = "dev-only-insecure-access-secret-change-me"
+	if env == "staging" || env == "production" {
+		for _, secret := range []struct{ name, value string }{
+			{"JWT_ACCESS_SECRET", cfg.JWT.AccessSecret},
+			{"JWT_REFRESH_SECRET", cfg.JWT.RefreshSecret},
+			{"MIDTRANS_SERVER_KEY", cfg.Midtrans.ServerKey},
+		} {
+			if strings.TrimSpace(secret.value) == "" {
+				return nil, fmt.Errorf("Configuration error: required secret %s is missing.", secret.name)
+			}
+		}
+		if strings.TrimSpace(os.Getenv("DB_PASSWORD")) == "" {
+			return nil, fmt.Errorf("Configuration error: required database setting DB_PASSWORD is missing.")
+		}
 	}
-	if cfg.JWT.RefreshSecret == "" {
-		cfg.JWT.RefreshSecret = "dev-only-insecure-refresh-secret-change-me"
+	if env == "production" && !cfg.Midtrans.IsProduction {
+		return nil, fmt.Errorf("Configuration error: MIDTRANS_IS_PRODUCTION must be true in production.")
+	}
+	if env == "local" {
+		if cfg.JWT.AccessSecret == "" {
+			cfg.JWT.AccessSecret = localSecret()
+			_, _ = fmt.Fprintln(os.Stderr, "WARNING: generated a temporary local JWT access secret; configure JWT_ACCESS_SECRET for persistent local sessions.")
+		}
+		if cfg.JWT.RefreshSecret == "" {
+			cfg.JWT.RefreshSecret = localSecret()
+			_, _ = fmt.Fprintln(os.Stderr, "WARNING: generated a temporary local JWT refresh secret; configure JWT_REFRESH_SECRET for persistent local sessions.")
+		}
 	}
 	return cfg, nil
 }
 
+func localSecret() string {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		panic("configuration error: could not generate temporary local secret")
+	}
+	return hex.EncodeToString(secret)
+}
+
 func getEnv(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
+	if v, ok := os.LookupEnv(key); ok && strings.TrimSpace(v) != "" {
 		return v
 	}
 	return fallback
@@ -125,16 +172,4 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
-}
-
-func getEnvBool(key string, fallback bool) bool {
-	v, ok := os.LookupEnv(key)
-	if !ok {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(v)
-	if err != nil {
-		return fallback
-	}
-	return parsed
 }

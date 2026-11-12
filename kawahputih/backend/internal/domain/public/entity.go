@@ -41,23 +41,33 @@ func (Destination) TableName() string { return "destinations" }
 
 type Facility struct {
 	Base
-	Name        string `gorm:"type:varchar(150);not null" json:"name"`
-	Description string `gorm:"type:varchar(500)" json:"description"`
-	Icon        string `gorm:"type:varchar(200)" json:"icon"`
-	Category    string `gorm:"type:varchar(50);index" json:"category"`
-	IsActive    bool   `gorm:"default:true" json:"is_active"`
-	SortOrder   int    `gorm:"default:0" json:"sort_order"`
+	Name           string  `gorm:"type:varchar(150);not null" json:"name"`
+	Description    string  `gorm:"type:varchar(500)" json:"description"`
+	Icon           string  `gorm:"type:varchar(200)" json:"icon"`
+	ImageURL       string  `gorm:"type:varchar(500)" json:"image_url"`
+	Location       string  `gorm:"type:varchar(200)" json:"location"`
+	OperatingHours string  `gorm:"type:varchar(200)" json:"operating_hours"`
+	Status         string  `gorm:"type:varchar(20);not null;default:active;index" json:"status"`
+	IsPublished    bool    `gorm:"default:false;index" json:"is_published"`
+	Category       string  `gorm:"type:varchar(50);index" json:"category"`
+	SortOrder      int     `gorm:"default:0" json:"sort_order"`
+	CreatedBy      string  `gorm:"type:char(36);index" json:"created_by,omitempty"`
+	UpdatedBy      string  `gorm:"type:char(36)" json:"updated_by,omitempty"`
+	DeletedBy      *string `gorm:"type:char(36)" json:"-"`
 }
 
 func (Facility) TableName() string { return "facilities" }
 
 type FAQ struct {
 	Base
-	Question  string `gorm:"type:varchar(500);not null" json:"question"`
-	Answer    string `gorm:"type:text;not null" json:"answer"`
-	Category  string `gorm:"type:varchar(100);index" json:"category"`
-	SortOrder int    `gorm:"default:0" json:"sort_order"`
-	IsActive  bool   `gorm:"default:true" json:"is_active"`
+	Question    string  `gorm:"type:varchar(500);not null" json:"question"`
+	Answer      string  `gorm:"type:longtext;not null" json:"answer"`
+	Category    string  `gorm:"type:varchar(100);index;not null" json:"category"`
+	SortOrder   int     `gorm:"default:0" json:"sort_order"`
+	IsPublished bool    `gorm:"default:false;index" json:"is_published"`
+	CreatedBy   string  `gorm:"type:char(36);index" json:"created_by,omitempty"`
+	UpdatedBy   string  `gorm:"type:char(36)" json:"updated_by,omitempty"`
+	DeletedBy   *string `gorm:"type:char(36)" json:"-"`
 }
 
 func (FAQ) TableName() string { return "faqs" }
