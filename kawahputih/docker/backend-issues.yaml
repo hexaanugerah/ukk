@@ -1,0 +1,136 @@
+# Dokumentasi bug dan ketidaksesuaian backend yang tidak diperbaiki dalam Sprint ini
+# (di luar cakupan titik kerja saat ini). Digunakan sebagai ringkasan dokumentasi Sprint 3.
+# Format: sanak dengan id masalah, skenario TC, lokasi kode, tingkat, dan catatan.
+issues:
+  # TC06 — login tidak memeriksa status verifikasi email (IsVerified)
+  - id: AUTH-06-login-tidak-campur-verifikasi
+    tc: TC06
+    title: Login tidak memeriksa verifikasi email (IsVerified)
+    tingkat: bug-fungsional
+    desc: Login sukses meskipun akun belum diverifikasi email. Backend hanya mengecek IsActive, tidak IsVerified.
+    lokasi:
+      file: internal/domain/auth/service.go
+      fungsi: Authenticate
+      baris: "baris ~66 (setelah cek IsActive, sebelum return)"
+    evidensi: TC06: login visitor belum verifikasi dikembalikan HTTP 200 dengan is_verified=False
+    rekomendasi: Tambahkan pemeriksaan IsVerified di Authenticate (berikan pesan 'email belum diverifikasi') sebelum return success.
+    status: buka
+
+  # TC07 — register tidak otomatis mengirim email verifikasi
+  - id: AUTH-07-register-tidak-kirim-email-verifikasi-otomatis
+    tc: TC07
+    title: Register tidak otomatis mengirim email verifikasi
+    tingkat: bug-fungsional
+    desc: Akun baru yang terdaftar langsung belum terverifikasi dan tidak ada email verifikasi yang dikirim.
+    lokasi:
+      file: internal/domain/auth/service.go
+      fungsi: CreateUser
+      baris: "baris ~43-65 (tanpa s.RequestEmailVerification(...))"
+    evidensi: register visitor baru tidak menghasilkan email verifikasi; harus panggil /auth/email/verify/request manual.
+    rekomendasi: Opsi A — kirim email verifikasi otomatis dari CreateUser. Opsi B — pastikan dokumentasi_flow & frontend memicu /auth/email/verify/request setelah register.
+    status: buka
+
+  # TC12 — pesan tiket habis: pesan error tidak sesuai harapan
+  - id: BOOK-12-pesan-habis-pesan-gap-cache
+    tc: TC12
+    title: Masalah pesan error saat kuota habis kemungkinan gap dengan draft (lukan yang berbeda)
+    tingkat: perbaikan-pesan-error
+    desc: TC12 gagal karena pesan error tidak memenuhi kata kunci 'habis' (berbeda dengan draft). Kemungkinan gap antar logika DB 'tidak tersedia' vs front-end.
+    lokasi:
+      file: internal/domain/booking/... (pengecekan kuota)
+      fungsi: CreateBookings / kalkulasi kuota
+    evidensi: HTTP 422 dengan 'Kategori tidak valid' menunjukkan kemungkinan rule validasi kategori override uang kuota; perlu revisi.
+    rekomendasi: Samakan logika pencetakan error kuota habis dengan pesan yang diharapkan.
+    status: buka
+
+  # TC15/TC16 — respons status kosong (None) saat scan QR valid & sudah digunakan
+  - id: TICKET-15-16-status-kosong-pada-respons
+    tc: "TC15/TC16"
+    title: Respons scan QR tidak memiliki field status (None) walau pesan berhasil
+    tingkat: perbaikan-respons
+    desc: backend mengembalikan HTTP 200 dengan message 'Tiket valid' dan 'Tiket sudah digunakan' namun field status = None; dokumentasi mengharapkan field status (valid / used).
+    lokasi:
+      file: internal/domain/ticketing/... handler & service (ValidateTicket)
+      fungsi: Validate -> toValidateResponse
+    evidensi: TC15 & TC16 dapat berjalan tapi pemeriksaan status None; TC15 & TC16 PASS secara perilaku tapi laporan mencatat None.
+    rekomendasi: Tambahkan/isi field status di respons validasi dengan nilai yang konsisten (valid / used / expired).
+    status: buka
+
+  # TC18/TC23 — akses lintas-pengguna (lihat booking orang lain) — perlu penegasan
+  - id: BOOK-18-23-akses-lintas
+    tc: "TC18/TC23"
+    title: Halaman booking milik orang lain — pendekatan akses lintas perlu didokumentasikan
+    tingkat: perbaikan-akses
+    desc: admin/manager tetap bisa melihat booking milik user (privilege scope), pengunjung lain tidak bisa (harusnya). Penegasan perlu dokumentasi.
+    lokasi:
+      file: internal/domain/booking/service.go( CanAccess ) & handler
+    evidensi: TC23 petugas eror 403, manager sukses — sesuai desain relasi; join TC06 perlu kejelasan kebijakan akses.
+    rekomendasi: Pastikan aturan akses/tingkat konsisten & terdokumentasi agar tutorial/testing selaras.
+    status: buka
+
+  # TC20 — penerapan peran hanya untuk super_admin
+  - id: ROLE-20-pemberian-peran
+    tc: TC20
+    title: Pemberian peran hanya untuk super_admin (tidak ada user super_admin di seeder)
+    tingkat: fitur-yang-tidak-terealisasikan-oleh-seeder
+    desc: endpoint /super-admin/* hanya super_admin; seeder membuat admin, manager, petugas tapi tidak ada super_admin, sehingga skenario TC20 tidak bisa diselesaikan.
+    lokasi:
+      file: internal/domain/role/routes.go dan handler
+    evidensi: TC20: HTTP 403 karena ADMIN tidak bisa assigned role; seeder tidak create super_admin
+    rekomendasi: Tambahkan akun super_admin di seeder (atau ganti desain otorisasi) supaya Pengujian TC20 dapat dilaksanakan.
+    status: buka
+
+  # TC21 — backend tidak ada endpoint update gate/shift petugas
+  - id: STAFF-21-tiada-update-gate
+    tc: TC21
+    title: Tidak ada endpoint update gerbang/petugas
+    tingkat: fitur-yang-belum-ada
+    desc: Backend hanya menyediakan PATCH /admin/staff/:id/status (khusus admin) dan list; tidak ada endpoint gerbang/shift update. TC21 dokumentasi Sprint 3 gagal.
+    lokasi:
+      file: internal/domain/staff/... dan rutas staff (jika ada) atau internal/petugas
+    evidensi: TC21: satu-satunya endpoint admin staff adalah PATCH status — tiada update gate/shift.
+    rekomendasi: Tambahkan endpoint update gate/shift dan daftarkan untuk manager (sesuai dokumen Sprint 3).
+    status: buka
+
+  # TC25 — reinvalidasi refresh token (rotasi) gagal karena token identik
+  - id: AUTH-25-revokasi-refresh-tidak-tepat
+    tc: TC25
+    title: Rotasi refresh token tidak tepat — token lama masih bisa dipakai karena RT identik
+    tingkat: bug-keamanan
+    desc: GenerateRefreshToken tanpa jti (ID unik), CreatedAt dalam detik yang sama → token identik selama panggilan dalam satu detik → revoke lama tidak memutus sesi (duplikat tetap valid).
+    lokasi:
+      file: pkg/jwtutil/jwtutil.go
+      fungsi: generate (dalam GenerateRefreshToken)
+      baris: "baris ~42-55 (tanpa jti)"
+    evidensi: CP24: login berkali-kali → refresh token identik; refresh#1 revoke namun refresh#2 masih HTTP 200 (token lama tetap valid).
+    rekomendasi: Tambahkan jti unik saat Issue/GenerateRefreshToken dan cegah slug duplikat; cek duplikat hash di CreateRefreshToken ; kunci revoked_or_jti.
+    status: buka
+
+  # TC27 — login Google belum tersedia (GOOGLE_CLIENT_ID kosong)
+  - id: AUTH-27-google-yet-to-be-configured
+    tc: TC27
+    title: Login Google belum tersedia (konfigurasi Google OAuth kosong)
+    tingkat: konfigurasi-yang-harus-diisi
+    desc: GOOGLE_CLIENT_ID kosong di .env lokal → endpoint Google Login mengeluarkan response 'Login Google belum tersedia' (HTTP 422).
+    lokasi:
+      file: .env (backend/.env) atau config GoogleOAuth
+    evidensi: TC27: GET /auth/google/login → 422 'Login Google belum tersedia.'
+    rekomendasi: Isi GOOGLE_CLIENT_ID/DEFAULT_REDIRECT_URL titik Google OAuth di lingkungan yang sesuai.
+    status: buka
+
+  # TC28 — lupa password: API working dengan catatan log (dev mode)
+  - id: AUTH-28-lupa-password-ok
+    tc: TC28
+    title: Lupa password kerja (dengan catatan SMTP di log)
+    tingkat: catatan-implementasi
+    desc: forgot/reset berhasil; token email verifikasi/reset ditulis log backend (mode dev SMTP = false).
+    lokasi:
+      file: internal/domain/auth/service.go (ForgotPassword/ResetPassword & logMailer)
+    evidensi: TC28: forgot HTTP 200, token di log, reset HTTP 200; login lama gagal, password baru berhasil.
+    rekomendasi: Jika production: konfigurasi SMTP; dokumentasi bahwa log menampung token di mode local.
+    status: catatan (bukan bug)
+
+# Catatan tambahan
+# - Konteks Domain: backend yang diuji pada Sprint ini berjalan lokal dengan data seeder dan mode SMTP=dev (log). Beberapa
+#   skenario TC gagal tidak karena bug mutlak, tapi karena kondisi lingkungan & desain yang berbeda dengan draft testcase.
+# - Ketidaksesuaian utama tetap dicatat di sini agar dokumentasi Sprint 3 tetap akurat & bisa diprioritaskan perbaikan.

@@ -1,0 +1,32 @@
+name: KawahPutih
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/backend.Dockerfile
+    restart: unless-stopped
+    # Optional: copy backend/.env.example to backend/.env to override the
+    # built-in defaults. Marked not-required so `docker compose up` works on a
+    # clean checkout that has no local .env yet.
+    env_file:
+      - path: ../backend/.env
+        required: false
+    environment:
+      REDIS_ADDR: redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"

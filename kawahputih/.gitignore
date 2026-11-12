@@ -1,0 +1,54 @@
+# ============================================================================
+# KAWAH PUTIH CIWIDEY — git ignore (root)
+# ============================================================================
+
+# --- Dependencies -----------------------------------------------------------
+node_modules/
+
+# --- Next.js build output ---------------------------------------------------
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# --- Environment / secrets --------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Local credential / test payloads ---------------------------------------
+login.json
+manager_login.json
+petugas_login.json
+pengunjung_login.json
+validate_ticket.json
+
+# --- Logs & temp ------------------------------------------------------------
+*.log
+npm-debug.log*
+tmp/
+*.tmp
+
+# --- Go / other compiled binaries -------------------------------------------
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# --- Build outputs ----------------------------------------------------------
+bin/
+build/
+dist/
+
+# --- OS / editor ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+
+# --- Tooling lokal ----------------------------------------------------------
+.freebuff/
+
+.kilo/worktrees/
