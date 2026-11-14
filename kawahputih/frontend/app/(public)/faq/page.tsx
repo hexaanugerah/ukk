@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   description: "Pertanyaan yang sering diajukan pengunjung Kawah Putih.",
 };
 
+// Konten FAQ dikelola admin via CMS — render saat request agar tidak
+// di-prerender saat build (build bisa berjalan tanpa backend hidup).
+export const dynamic = "force-dynamic";
+
 export default async function FaqPage() {
   const faqs = await faqService.listPublished();
 

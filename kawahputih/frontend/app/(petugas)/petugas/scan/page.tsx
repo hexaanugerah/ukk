@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 import { Camera, CameraOff, CheckCircle2, Loader2, ScanLine, XCircle } from "lucide-react";
 import { PageHeader, SectionCard } from "@/components/panel/panel-ui";
@@ -9,8 +9,8 @@ import { scannerService } from "@/services/scanner.api.service";
 import { toast } from "sonner";
 
 // Scan QR — kamera membaca QR tiket, lalu hasilnya divalidasi ke backend.
-// Payload QR yang dipakai e-tiket adalah `qr_data` dari backend, sehingga
-// pemindaian langsung terhubung ke data tiket yang sama dengan yang dilihat pengunjung.
+// Perilaku: kamera AKTIF otomatis saat halaman dibuka, dan NONAKTIF otomatis
+// setelah 1 menit tanpa pindaian. Petugas dapat menyalakan kembali kapan saja.
 
 type ScanKind = "VALID" | "USED" | "INVALID" | "EXPIRED" | "CANCELLED";
 
@@ -38,6 +38,9 @@ const RESULT_STYLE: Record<ScanKind, string> = {
   CANCELLED: "border-[#c53030] bg-[#fdeaea] text-[#c53030]",
 };
 
+// Kamera nonaktif otomatis setelah 60 detik tanpa hasil pindaian.
+const SCAN_IDLE_SECONDS = 60;
+
 function defaultMessage(status: string): string {
   switch (status) {
     case "VALID":
@@ -60,15 +63,29 @@ export default function PetugasScanPage() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(SCAN_IDLE_SECONDS);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef(false);
   const lastScanRef = useRef<{ value: string; at: number }>({ value: "", at: 0 });
+  const startedRef = useRef(false);
 
   const gate = user?.gate ?? "Gerbang 1";
   const petugas = user?.name ?? "Petugas";
+
+  // Reset hitung mundur: dipanggil setiap ada hasil pindaian.
+  const resetIdleTimer = useCallback(() => {
+    setSecondsLeft(SCAN_IDLE_SECONDS);
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+    lastScanRef.current = { value: "", at: 0 };
+  }, []);
 
   async function runScan(input: string) {
     const ref = input.trim();
@@ -102,11 +119,14 @@ export default function PetugasScanPage() {
     } finally {
       scanningRef.current = false;
       setScanning(false);
+      // Ada hasil pindaian → kamera tetap aktif untuk pengunjung berikutnya.
+      resetIdleTimer();
     }
   }
 
-  async function startCamera() {
+  const startCamera = useCallback(async () => {
     setCameraError(null);
+    setResult(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Browser ini tidak mendukung akses kamera. Gunakan input kode manual.");
       return;
@@ -117,17 +137,19 @@ export default function PetugasScanPage() {
         audio: false,
       });
       streamRef.current = stream;
+      setSecondsLeft(SCAN_IDLE_SECONDS);
       setCameraOn(true);
     } catch {
       setCameraError("Izin kamera ditolak atau kamera tidak tersedia. Gunakan input kode manual.");
     }
-  }
+  }, []);
 
-  function stopCamera() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setCameraOn(false);
-  }
+  // Kamera aktif otomatis saat halaman petugas dibuka.
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void startCamera();
+  }, [startCamera]);
 
   // Loop pembacaan frame kamera dengan jsQR. Deteksi hasil yang sama ditahan
   // sebentar agar satu QR tidak mengirim validasi berulang.
@@ -174,69 +196,120 @@ export default function PetugasScanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOn]);
 
+  // Hitung mundur: kamera nonaktif otomatis saat tidak ada pindaian.
+  useEffect(() => {
+    if (!cameraOn) return;
+    const interval = setInterval(() => {
+      setSecondsLeft((left) => {
+        if (left <= 1) {
+          stopCamera();
+          toast.info("Kamera nonaktif otomatis", {
+            description: "Tidak ada pindaian selama 1 menit.",
+          });
+          return 0;
+        }
+        return left - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cameraOn, stopCamera]);
+
   // Bersihkan kamera saat halaman ditinggalkan.
-  useEffect(() => stopCamera, []);
+  useEffect(() => () => stopCamera(), [stopCamera]);
 
   return (
     <div>
       <PageHeader
         title="Scan QR Code"
         subtitle={`Pindai QR tiket pengunjung — ${gate}, Shift ${user?.shift ?? "Pagi"}`}
-        action={
-          cameraOn ? (
-            <button
-              onClick={stopCamera}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#d7e3ed] bg-white px-3 text-xs font-semibold text-[#29445e] hover:bg-[#f2f7fb]"
-            >
-              <CameraOff className="h-4 w-4" /> Hentikan Kamera
-            </button>
-          ) : (
-            <button
-              onClick={startCamera}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#1768ad] px-3 text-xs font-semibold text-white hover:bg-[#14548f]"
-            >
-              <Camera className="h-4 w-4" /> Aktifkan Kamera
-            </button>
-          )
-        }
       />
 
       <SectionCard bodyClassName="p-0">
         <div className="grid min-h-[360px] place-items-center px-6 py-6">
           <div className="w-full max-w-[380px] text-center">
-            <div className="mx-auto mb-[-15px] h-9 w-40 rounded-full border-4 border-[#1768ad] bg-white pt-1 text-xs font-extrabold tracking-wide text-[#1768ad]">
-              {scanning ? "MEMVALIDASI" : cameraOn ? "ARAHKAN KE QR" : "SCAN HERE"}
+            {/* Status kamera */}
+            <div
+              className={`mx-auto mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold tracking-wide ${
+                scanning
+                  ? "bg-[#eef7fd] text-[#1768ad]"
+                  : cameraOn
+                  ? "bg-[#e6f7f0] text-[#16876a]"
+                  : "bg-[#fdeaea] text-[#c53030]"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  scanning ? "bg-[#1768ad]" : cameraOn ? "bg-[#16876a]" : "bg-[#c53030]"
+                }`}
+              />
+              {scanning
+                ? "MEMVALIDASI"
+                : cameraOn
+                ? `KAMERA AKTIF • ${secondsLeft}s`
+                : "KAMERA NONAKTIF"}
             </div>
-            <div className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-lg border-4 border-[#1768ad] bg-black">
+
+            <div className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-xl border-2 border-[#1768ad] bg-[#0b1c2c]">
               {cameraOn ? (
-                <video
-                  ref={videoRef}
-                  playsInline
-                  muted
-                  className="h-full w-full object-cover"
-                  aria-label="Pratinjau kamera scanner"
-                />
+                <>
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    muted
+                    className="h-full w-full object-cover"
+                    aria-label="Pratinjau kamera scanner"
+                  />
+                  {/* Bingkai pemandu pindai */}
+                  <div className="pointer-events-none absolute inset-8 rounded-lg border-2 border-white/70">
+                    <span className="absolute -left-0.5 -top-0.5 h-5 w-5 rounded-tl-lg border-l-4 border-t-4 border-[#7cc4f4]" />
+                    <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-tr-lg border-r-4 border-t-4 border-[#7cc4f4]" />
+                    <span className="absolute -bottom-0.5 -left-0.5 h-5 w-5 rounded-bl-lg border-b-4 border-l-4 border-[#7cc4f4]" />
+                    <span className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded-br-lg border-b-4 border-r-4 border-[#7cc4f4]" />
+                  </div>
+                </>
               ) : (
-                <div className="w-[70%] space-y-2 bg-white p-4">
-                  {Array.from({ length: 11 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-2 rounded-sm bg-black"
-                      style={{
-                        width: `${i % 3 === 0 ? 100 : i % 3 === 1 ? 82 : 92}%`,
-                        marginLeft: i % 2 ? "auto" : 0,
-                      }}
-                    />
-                  ))}
+                /* Tampilan kamera nonaktif — gelap, terpusat, satu aksi jelas. */
+                <div className="relative flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-b from-[#17324d] to-[#0b1c2c] px-6 text-center">
+                  <span className="grid h-14 w-14 place-items-center rounded-full bg-white/10">
+                    {cameraError ? (
+                      <CameraOff className="h-7 w-7 text-[#f0a5a5]" />
+                    ) : (
+                      <Camera className="h-7 w-7 text-[#9ec7e5]" />
+                    )}
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      {cameraError ? "Kamera tidak dapat digunakan" : "Kamera nonaktif"}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-[#9ec7e5]">
+                      {cameraError
+                        ? "Gunakan input kode tiket manual di bawah."
+                        : "Kamera berhenti karena tidak ada pindaian selama 1 menit."}
+                    </p>
+                  </div>
+                  <button
+                    onClick={startCamera}
+                    className="inline-flex items-center gap-2 rounded-full bg-[#1768ad] px-5 py-2.5 text-sm font-bold text-white shadow-lg transition hover:bg-[#14548f]"
+                  >
+                    <ScanLine className="h-4 w-4" /> Aktifkan Kamera
+                  </button>
                 </div>
               )}
+
               {scanning && (
                 <div className="absolute inset-0 grid place-items-center bg-black/40">
                   <Loader2 className="h-12 w-12 animate-spin text-white" />
                 </div>
               )}
             </div>
+
             <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
+
+            <p className="mt-2 text-xs text-[#698097]">
+              {cameraOn
+                ? `Kamera nonaktif otomatis dalam ${secondsLeft} detik jika tidak ada pindaian.`
+                : "Kamera aktif otomatis saat halaman dibuka."}
+            </p>
           </div>
         </div>
 

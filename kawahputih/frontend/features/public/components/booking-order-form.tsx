@@ -10,6 +10,8 @@ import { ticketService } from "@/services/ticket.api.service";
 import { useBookingStore } from "@/store/booking.store";
 import { calculateBookingTotals, rupiah } from "@/lib/business";
 import { useAuthStore } from "@/store/auth.store";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { validatePhoneFull } from "@/lib/phone";
 import type { Ticket } from "@/types/api";
 
 // Booking order form — langkah kedua alur pemesanan. Pemilihan tanggal & tiket dibawa lewat query string (?date=...&items=id:qty). Halaman ini hanya melengkapi data pemesan.
@@ -17,7 +19,10 @@ import type { Ticket } from "@/types/api";
 const visitorSchemaZ = {
   name: (v: string) => (v.trim().length >= 3 ? null : "Nama lengkap minimal 3 karakter"),
   email: (v: string) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : "Format email tidak valid"),
-  phone: (v: string) => (/^(\+62|62|0)8[1-9][0-9]{6,10}$/.test(v.replace(/[\s-]/g, "")) ? null : "Nomor HP tidak valid (contoh: 081234567890)"),
+  phone: (v: string) => {
+    const r = validatePhoneFull(v, true);
+    return r.valid ? null : r.message ?? "Nomor HP tidak valid";
+  },
 };
 
 interface FieldErrors {
@@ -248,19 +253,15 @@ export function BookingOrderForm() {
 
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-[#29445e]">No. Handphone*</span>
-              <span className="flex">
-                <span className="grid h-10 place-items-center rounded-l-md border border-r-0 border-[#d7e3ed] bg-[#f7fbff] px-3 text-sm text-[#698097]">
-                  +62
-                </span>
-                <input
-                  inputMode="numeric"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="81234567890"
-                  className={`${field} rounded-l-none`}
-                  aria-invalid={!!errors.phone}
-                />
-              </span>
+              <PhoneInput
+                value={phone}
+                onChange={setPhone}
+                invalid={!!errors.phone}
+                placeholder="81234567890"
+                inputClassName={`${field}`}
+                selectClassName="h-10 rounded-md border border-[#d7e3ed] bg-[#f7fbff] px-2 text-sm text-[#698097] outline-none focus:border-brand-600"
+                ariaLabel="Nomor handphone"
+              />
               {errors.phone && <span className={errText}>{errors.phone}</span>}
             </label>
 
@@ -354,7 +355,7 @@ export function BookingOrderForm() {
         >
           Ubah pilihan tiket
         </Link>
-        <p className="mt-1 text-center text-[11px] text-[#94A3B8]">Pembayaran diproses via simulasi QRIS.</p>
+        <p className="mt-1 text-center text-[11px] text-[#94A3B8]">Pembayaran diproses via Midtrans (QRIS, VA, e-wallet).</p>
       </aside>
     </form>
   );

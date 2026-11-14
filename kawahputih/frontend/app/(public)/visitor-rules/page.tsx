@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   description: "Panduan dan ketentuan yang perlu diperhatikan selama berkunjung ke Kawah Putih.",
 };
 
+// Konten aturan dikelola admin — render saat request.
+export const dynamic = "force-dynamic";
+
 const PRIORITY_ICONS = {
   low: "🟢",
   normal: "🔵",

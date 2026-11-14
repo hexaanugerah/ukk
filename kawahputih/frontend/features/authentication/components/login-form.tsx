@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLogin } from "@/hooks/use-auth";
 import { toast } from "sonner";
+import { authService } from "@/services/auth.api.service";
 import { loginSchema, sanitizeEmail } from "@/features/authentication/schemas/auth.schema";
 
 // Login form — validasi email/password, show/hide password, remember me.
@@ -20,6 +21,10 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Aktif saat backend menolak login karena email belum diverifikasi (AUTH-06).
+  // Menampilkan tombol kirim-ulang email verifikasi di bawah form.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
 
   // CKEditor
 
@@ -98,10 +103,31 @@ export function LoginForm() {
     setSubmitting(false);
 
     if (res.ok) {
+      setNeedsVerification(false);
       toast.success("Login berhasil", { description: "Selamat datang kembali!" });
     } else {
       setErrors({ form: res.error });
+      setNeedsVerification(res.error.includes("belum diverifikasi"));
       toast.error("Login gagal", { description: res.error });
+    }
+  }
+
+  async function resendVerification() {
+    const value = sanitizeEmail(email);
+    if (!value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      toast.error("Masukkan email terlebih dahulu untuk kirim ulang verifikasi");
+      return;
+    }
+    setResending(true);
+    try {
+      await authService.requestEmailVerification(value);
+      toast.success("Email verifikasi dikirim", {
+        description: "Cek kotak masuk Anda (juga folder spam) untuk link verifikasi.",
+      });
+    } catch {
+      toast.error("Gagal mengirim email verifikasi");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -180,6 +206,20 @@ export function LoginForm() {
           <p role="alert" className="rounded-md bg-[#fdeaea] px-3 py-2 text-sm text-[#c53030]">
             {errors.form}
           </p>
+        )}
+
+        {needsVerification && (
+          <div className="rounded-md bg-[#fff8e6] px-3 py-2 text-sm text-[#8a6d1a]">
+            <p>Email Anda belum diverifikasi. Buka link verifikasi di kotak masuk, atau minta kirim ulang di bawah.</p>
+            <button
+              type="button"
+              onClick={resendVerification}
+              disabled={resending}
+              className="mt-2 rounded-md border border-[#e5d18c] px-3 py-1.5 text-xs font-semibold text-[#8a6d1a] hover:bg-[#fdf3d1] disabled:opacity-60"
+            >
+              {resending ? "Mengirim..." : "Kirim ulang email verifikasi"}
+            </button>
+          </div>
         )}
 
         <Button

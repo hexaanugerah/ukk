@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validatePhoneFull } from "@/lib/phone";
 
 export const loginSchema = z.object({
   email: z
@@ -29,8 +30,8 @@ export const registerSchema = z
     phone: z
       .string()
       .optional()
-      .refine((val) => !val || /^(\+62|62|0)8[0-9]{8,11}$/.test(val), {
-        message: "Format nomor telepon Indonesia tidak valid",
+      .refine((val) => !val || /^\+[1-9]\d{6,14}$/.test(val), {
+        message: "Format nomor telepon tidak valid (contoh: +6281234567890)",
       }),
     password: z
       .string()
@@ -110,22 +111,6 @@ export function sanitizeEmail(email: string): string {
 }
 
 export function validatePhone(phone: string): { valid: boolean; message?: string } {
-  const cleaned = phone.replace(/[\s-]/g, "");
-  let normalized = cleaned;
-  
-  if (cleaned.startsWith("+62")) {
-    normalized = "0" + cleaned.slice(3);
-  } else if (cleaned.startsWith("62")) {
-    normalized = "0" + cleaned.slice(2);
-  }
-  
-  if (!normalized.startsWith("08")) {
-    return { valid: false, message: "Nomor telepon harus diawali 08" };
-  }
-  
-  if (normalized.length < 10 || normalized.length > 13) {
-    return { valid: false, message: "Nomor telepon harus 10-13 digit" };
-  }
-  
-  return { valid: true };
+  // Validasi generik: menerima "08..." (lama) dan E.164 "+62..." / "+xx...".
+  return validatePhoneFull(phone);
 }

@@ -5,7 +5,7 @@ export const APP_CONFIG = {
   shortName: "Kawah Putih",
   tagline: "Wisata Alam Bandung",
   currency: "IDR",
-  /** Kapasitas pengunjung per hari — dipakai simulasi ketersediaan tanggal. */
+  /** Kapasitas pengunjung per hari — batas ketersediaan tanggal pemesanan. */
   dailyVisitorCapacity: 1000,
   operationalHour: { open: "07:00", close: "17:00" },
   contact: {
@@ -22,17 +22,16 @@ export const BOOKING_CONFIG = {
   maxDaysAhead: 365,
   /** Maksimum tiket per jenis dalam satu pesanan. */
   maxQuantityPerTicket: 20,
-  /** Biaya layanan flat per transaksi (Rp). */
-  serviceFee: 2500,
+  /**
+   * Biaya layanan (% dari subtotal). HARUS sama dengan backend
+   * (internal/domain/booking/service.go: serviceFeeRate = 2.0) karena backend
+   * adalah satu-satunya sumber kebenaran saat transaksi disimpan.
+   */
+  serviceFeePercent: 2,
   /** Persentase diskon promo (0 = nonaktif). */
   discountPercent: 0,
   /** Pajak (0 = nonaktif). */
   taxPercent: 0,
   /** Kadaluarsa pembayaran QRIS (menit). */
   paymentExpiryMinutes: 15,
-  /**
-   * Simulasi pembayaran: peluang sukses (0-1).
-   * Set `forceOutcome` untuk memaksa hasil tertentu saat testing.
-   */
-  paymentSuccessRate: 0.9,
 } as const;

@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/KawahPutih/backend/internal/config"
@@ -41,26 +42,29 @@ type Graph struct {
 }
 
 type App struct {
-	FrontendURL            string
-	AuthHandler            *auth.Handler
-	RoleHandler            *role.Handler
-	UserHandler            *user.Handler
-	ArticleHandler         *article.Handler
-	GalleryHandler         *gallery.Handler
-	PackageHandler         *tourismpackage.Handler
-	BookingHandler         *booking.Handler
-	TicketHandler          *tickettype.Handler
-	PaymentHandler         *payments.Handler
-	TicketingHandler       *ticketing.Handler
-	AnalyticsHandler       *analytics.Handler
-	VisitorsHandler        *visitors.Handler
-	AuditHandler           *audit.Handler
-	PublicHandler          *public.Handler
-	VerificationHandler    *verification.Handler
-	DestinationInfoHandler *destinationinfo.Handler
-	FAQHandler             *faq.Handler
-	FacilityHandler        *facility.Handler
-	VisitorRuleHandler     *visitorrule.Handler
+	FrontendURL               string
+	UploadDir                 string
+	AuthHandler               *auth.Handler
+	RoleHandler               *role.Handler
+	UserHandler               *user.Handler
+	ArticleHandler            *article.Handler
+	GalleryHandler            *gallery.Handler
+	PackageHandler            *tourismpackage.Handler
+	BookingHandler            *booking.Handler
+	TicketHandler             *tickettype.Handler
+	PaymentHandler            *payments.Handler
+	PaymentDestinationHandler *payments.DestinationHandler
+	PaymentSettingsHandler    *payments.SettingsHandler
+	TicketingHandler          *ticketing.Handler
+	AnalyticsHandler          *analytics.Handler
+	VisitorsHandler           *visitors.Handler
+	AuditHandler              *audit.Handler
+	PublicHandler             *public.Handler
+	VerificationHandler       *verification.Handler
+	DestinationInfoHandler    *destinationinfo.Handler
+	FAQHandler                *faq.Handler
+	FacilityHandler           *facility.Handler
+	VisitorRuleHandler        *visitorrule.Handler
 
 	JWTManager *jwtutil.Manager
 	Sweeper    *scheduler.ExpiredBookingSweeper
@@ -90,7 +94,7 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 	articleHandler := article.NewHandler(article.NewUsecase(articleService))
 
 	galleryRepo := gallery.NewRepository(db)
-	galleryStore := gallery.NewLocalDiskStore("/var/uploads/gallery")
+	galleryStore := gallery.NewLocalDiskStore(filepath.Join(cfg.Storage.UploadDir, "gallery"), "/uploads/gallery")
 	galleryService := gallery.NewService(galleryRepo, galleryStore, "/uploads/gallery")
 	galleryHandler := gallery.NewHandler(gallery.NewUsecase(galleryService))
 
@@ -134,9 +138,12 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 
 	paymentsRepo := payments.NewRepository(db)
 	midtransGateway := midtrans.NewGateway(midtrans.Config{ServerKey: cfg.Midtrans.ServerKey, IsProduction: cfg.Midtrans.IsProduction})
-	paymentsService := payments.NewService(paymentsRepo, &bookingGatewayAdapter{uc: bookingUsecase}, &ticketIssuerAdapter{svc: ticketingService}, midtransGateway, log, auditLogger, cfg.App.Env)
+	paymentsSettingsService := payments.NewSettingsService(payments.NewConfigRepository(db), midtransGateway, cfg.App.Env, cfg.App.PublicURL)
+	paymentsService := payments.NewService(paymentsRepo, &bookingGatewayAdapter{uc: bookingUsecase}, &ticketIssuerAdapter{svc: ticketingService}, midtransGateway, log, auditLogger, cfg.App.Env).WithSettings(paymentsSettingsService)
 	paymentsUsecase := payments.NewUsecase(paymentsService)
 	paymentsHandler := payments.NewHandler(paymentsUsecase)
+	paymentsDestinationHandler := payments.NewDestinationHandler(payments.NewDestinationService(payments.NewDestinationRepository(db)))
+	paymentsSettingsHandler := payments.NewSettingsHandler(paymentsSettingsService)
 
 	*bookingService = *booking.NewService(bookingRepo,
 		&paymentStarterAdapter{svc: paymentsService},
@@ -170,10 +177,12 @@ func Build(cfg *config.Config, db *gorm.DB, log *zap.Logger) *App {
 
 	return &App{
 		FrontendURL: cfg.App.FrontendURL,
+		UploadDir:   cfg.Storage.UploadDir,
 		AuthHandler: authHandler, RoleHandler: roleHandler, UserHandler: userHandler,
 		ArticleHandler: articleHandler, GalleryHandler: galleryHandler, PackageHandler: packageHandler,
-		BookingHandler: bookingHandler, TicketHandler: ticketTypeHandler, PaymentHandler: paymentsHandler,
-		TicketingHandler: ticketingHandler, AnalyticsHandler: analyticsHandler, VisitorsHandler: visitorsHandler,
+		BookingHandler: bookingHandler, TicketHandler: ticketTypeHandler,		PaymentHandler: paymentsHandler, PaymentDestinationHandler: paymentsDestinationHandler,
+		PaymentSettingsHandler: paymentsSettingsHandler,
+		TicketingHandler:          ticketingHandler, AnalyticsHandler: analyticsHandler, VisitorsHandler: visitorsHandler,
 		AuditHandler: auditHandler, PublicHandler: publicHandler, VerificationHandler: verificationHandler,
 		DestinationInfoHandler: destinationInfoHandler, FAQHandler: faqHandler, FacilityHandler: facilityHandler,
 		VisitorRuleHandler: visitorRuleHandler,

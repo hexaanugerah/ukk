@@ -76,6 +76,12 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (*Us
 	if !user.IsActive {
 		return nil, ErrAccountDeactivated
 	}
+	// AUTH-06: akun yang belum verifikasi email tidak boleh login. Akun Google
+	// selalu IsVerified=true (lihat GoogleExchange), jadi hanya alur password
+	// yang perlu gerbang ini.
+	if !user.IsVerified {
+		return nil, ErrEmailNotVerified
+	}
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
 		return nil, ErrInvalidCredentials
 	}

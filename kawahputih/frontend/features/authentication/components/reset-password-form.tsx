@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { resetPasswordSchema, type ResetPasswordFormValues } from "../schemas/auth.schema";
+import { authService, AuthError } from "@/services/auth.api.service";
 
-// Mode mock: reset password hanya simulasi — tidak ada backend email.
+// Reset password via backend nyata: POST /auth/password/reset dengan token
+// dari link email. Berhasil → pengguna login ulang dengan password baru.
 export function ResetPasswordForm() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export function ResetPasswordForm() {
     }
   };
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = resetPasswordSchema.safeParse(values);
     if (!parsed.success) {
@@ -86,11 +88,17 @@ export function ResetPasswordForm() {
     }
     setErrors({});
     setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
-      toast.success("Password berhasil direset (simulasi), silakan masuk kembali");
+    try {
+      await authService.resetPassword(values.token, parsed.data.password);
+      toast.success("Password berhasil direset, silakan masuk kembali");
       router.push("/login");
-    }, 600);
+    } catch (err) {
+      const message = err instanceof AuthError ? err.message : "Gagal mereset password.";
+      setErrors({ root: message });
+      toast.error("Reset password gagal", { description: message });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -123,6 +131,11 @@ export function ResetPasswordForm() {
         />
         {errors.confirmPassword && <p id="confirm-error" className="mt-1 text-xs text-red-600" role="alert">{errors.confirmPassword}</p>}
       </div>
+      {errors.root && (
+        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errors.root}
+        </p>
+      )}
       <button
         type="submit"
         disabled={submitting}

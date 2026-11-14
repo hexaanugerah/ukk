@@ -50,8 +50,9 @@ export const authService = {
       throw new AuthError(response.message || "Login gagal");
     }
 
-    // Simpan token di API client
+    // Simpan token di API client (access + refresh untuk auto-refresh)
     apiClient.setToken(response.data.access_token);
+    apiClient.setRefreshToken(response.data.refresh_token ?? null);
 
     const user = mapBackendUserToSessionUser(response.data.user);
     useAuthStore.getState().login(user, remember);
@@ -85,6 +86,7 @@ export const authService = {
     }
 
     apiClient.setToken(response.data.access_token);
+    apiClient.setRefreshToken(response.data.refresh_token ?? null);
     const user = mapBackendUserToSessionUser(response.data.user);
     useAuthStore.getState().login(user, true);
 
@@ -129,19 +131,78 @@ export const authService = {
     }
 
     // Hanya setelah backend sukses: seluruh sesi dicabut, jadi bersihkan sesi lokal.
-    apiClient.setToken(null);
+    apiClient.clearTokens();
     useAuthStore.getState().logout();
   },
 
-  /** Logout dari backend. */
+  /** Logout dari backend (mencabut refresh token aktif). */
   async logout(): Promise<void> {
     try {
-      await apiClient.post<LogoutResponse>("/auth/logout", {});
+      const refreshToken = apiClient.getRefreshToken();
+      await apiClient.post<LogoutResponse>("/auth/logout", { refresh_token: refreshToken ?? "" });
     } catch {
       // Abaikan error logout
     } finally {
-      apiClient.setToken(null);
+      apiClient.clearTokens();
       useAuthStore.getState().logout();
+    }
+  },
+
+  /**
+   * Lupa password — backend mengirim link reset ke email.
+   * Respons selalu sukses (tidak membocorkan keberadaan email).
+   */
+  async forgotPassword(email: string): Promise<void> {
+    try {
+      const response = await apiClient.post<ApiResponse<null>>("/auth/password/forgot", { email });
+      if (!response.success) throw new AuthError(response.message || "Gagal mengirim link reset.");
+    } catch (err) {
+      throw new AuthError(
+        err instanceof ApiError ? err.message : "Gagal mengirim link reset.",
+        err instanceof ApiError ? err.status : undefined
+      );
+    }
+  },
+
+  /** Reset password dengan token dari email (POST /auth/password/reset). */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    try {
+      const response = await apiClient.post<ApiResponse<null>>("/auth/password/reset", {
+        token,
+        new_password: newPassword,
+      });
+      if (!response.success) throw new AuthError(response.message || "Gagal mereset password.");
+    } catch (err) {
+      throw new AuthError(
+        err instanceof ApiError ? err.message : "Gagal mereset password.",
+        err instanceof ApiError ? err.status : undefined
+      );
+    }
+  },
+
+  /** Minta ulang email verifikasi (POST /auth/email/verify/request). */
+  async requestEmailVerification(email: string): Promise<void> {
+    try {
+      const response = await apiClient.post<ApiResponse<null>>("/auth/email/verify/request", { email });
+      if (!response.success) throw new AuthError(response.message || "Gagal mengirim email verifikasi.");
+    } catch (err) {
+      throw new AuthError(
+        err instanceof ApiError ? err.message : "Gagal mengirim email verifikasi.",
+        err instanceof ApiError ? err.status : undefined
+      );
+    }
+  },
+
+  /** Verifikasi email dengan token dari email (POST /auth/email/verify). */
+  async verifyEmail(token: string): Promise<void> {
+    try {
+      const response = await apiClient.post<ApiResponse<null>>("/auth/email/verify", { token });
+      if (!response.success) throw new AuthError(response.message || "Verifikasi email gagal.");
+    } catch (err) {
+      throw new AuthError(
+        err instanceof ApiError ? err.message : "Verifikasi email gagal.",
+        err instanceof ApiError ? err.status : undefined
+      );
     }
   },
 
@@ -161,7 +222,7 @@ export const authService = {
       }
     } catch (error) {
       // Token tidak valid atau kedaluwarsa
-      apiClient.setToken(null);
+      apiClient.clearTokens();
       useAuthStore.getState().logout();
     }
 

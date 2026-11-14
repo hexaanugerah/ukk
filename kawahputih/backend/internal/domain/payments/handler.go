@@ -10,8 +10,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// proofDir adalah sub-direktori unggahan bukti pembayaran di dalam UPLOAD_DIR.
+const proofDir = "payments"
+const proofURLPrefix = "/uploads/payments"
+
 type Handler struct {
-	usecase *Usecase
+	usecase   *Usecase
+	uploadDir string
 }
 
 func NewHandler(usecase *Usecase) *Handler { return &Handler{usecase: usecase} }
@@ -79,12 +84,29 @@ func (h *Handler) MarkDownloaded(c *gin.Context) {
 func (h *Handler) AdminList(c *gin.Context) {
 	page, _ := strconv.Atoi(c.Query("page"))
 	limit, _ := strconv.Atoi(c.Query("limit"))
-	result, total, err := h.usecase.ListAll(c.Request.Context(), page, limit, c.Query("status"))
+	filter := ListFilter{
+		Status: c.Query("status"),
+		Method: c.Query("method"),
+		From:   c.Query("from"),
+		To:     c.Query("to"),
+		Query:  c.Query("q"),
+	}
+	result, total, err := h.usecase.ListFiltered(c.Request.Context(), page, limit, filter)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
 		return
 	}
 	response.OKWithMeta(c, "payments retrieved", result, response.BuildMeta(page, limit, total))
+}
+
+// ManagerReport menyajikan ringkasan pembayaran untuk manager.
+func (h *Handler) ManagerReport(c *gin.Context) {
+	report, err := h.usecase.ManagerReport(c.Request.Context(), c.Query("from"), c.Query("to"))
+	if err != nil {
+		apperror.WriteHTTP(c, err)
+		return
+	}
+	response.OK(c, "payment report retrieved", report)
 }
 
 func (h *Handler) AdminSetStatus(c *gin.Context) {
@@ -116,6 +138,7 @@ func (h *Handler) GetByID(c *gin.Context) {
 
 func (h *Handler) Webhook(c *gin.Context) {
 	var req struct {
+		TransactionID     string `json:"transaction_id" form:"transaction_id"`
 		OrderID           string `json:"order_id" form:"order_id"`
 		TransactionStatus string `json:"transaction_status" form:"transaction_status"`
 		StatusCode        string `json:"status_code" form:"status_code"`
@@ -127,7 +150,9 @@ func (h *Handler) Webhook(c *gin.Context) {
 		response.BadRequest(c, "invalid webhook payload", nil)
 		return
 	}
-	if err := h.usecase.HandleMidtransWebhook(c.Request.Context(), req.OrderID, req.TransactionStatus, req.StatusCode, req.FraudStatus, req.SignatureKey, req.GrossAmount); err != nil {
+	// Kunci idempotency: satu transaksi hanya diproses sekali per perubahan status.
+	notificationID := req.TransactionID + ":" + req.TransactionStatus + ":" + req.StatusCode
+	if err := h.usecase.HandleMidtransWebhook(c.Request.Context(), notificationID, req.OrderID, req.TransactionStatus, req.StatusCode, req.FraudStatus, req.SignatureKey, req.GrossAmount); err != nil {
 		apperror.WriteHTTP(c, err)
 		return
 	}
@@ -156,8 +181,10 @@ func (h *Handler) AdminSetEWalletNumber(c *gin.Context) {
 	response.OK(c, "nomor e-Wallet diperbarui", result)
 }
 
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, jwtManager *jwtutil.Manager) {
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, dest *DestinationHandler, settings *SettingsHandler, uploadDir string, jwtManager *jwtutil.Manager) {
 	requireAuth := middleware.RequireAuth(jwtManager)
+
+	h.uploadDir = uploadDir
 
 	payments := rg.Group("/payments", requireAuth)
 	payments.POST("/process", h.Process)
@@ -165,11 +192,28 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, jwtManager *jwtutil.Manager
 	payments.GET("/:id", h.GetByID)
 	payments.GET("/booking/:bookingId", h.GetByBooking)
 	payments.POST("/booking/:bookingId/download", h.MarkDownloaded)
+	payments.POST("/booking/:bookingId/proof", h.UploadProof)
 
 	rg.POST("/payments/webhook", h.Webhook)
+
+	// Tujuan & metode pembayaran publik untuk pengunjung.
+	rg.GET("/payment-destinations", dest.ListActive)
+	rg.GET("/payment-methods", settings.ListPublicMethods)
 
 	admin := rg.Group("/admin", requireAuth, middleware.RequireRole("ADMIN", "super_admin"))
 	admin.GET("/payments", h.AdminList)
 	admin.PATCH("/payments/:id/status", h.AdminSetStatus)
 	admin.PATCH("/payments/:id/ewallet-number", h.AdminSetEWalletNumber)
+	admin.GET("/payment-destinations", dest.List)
+	admin.POST("/payment-destinations", dest.Create)
+	admin.PUT("/payment-destinations/:id", dest.Update)
+	admin.DELETE("/payment-destinations/:id", dest.Delete)
+	admin.GET("/payment-settings", settings.Get)
+	admin.PUT("/payment-settings", settings.Update)
+	admin.GET("/payment-methods", settings.ListMethods)
+	admin.PATCH("/payment-methods/:code", settings.UpdateMethod)
+
+	// Manager: laporan pembayaran (read-only).
+	manager := rg.Group("/manager", requireAuth, middleware.RequireRole("MANAGER", "ADMIN", "super_admin"))
+	manager.GET("/payment-reports", h.ManagerReport)
 }

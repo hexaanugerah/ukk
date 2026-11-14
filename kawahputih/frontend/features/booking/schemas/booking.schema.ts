@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { joinPhone, splitPhone, validatePhoneFull } from "@/lib/phone";
 
 // Skema pengunjung
 export const visitorSchema = z.object({
@@ -15,7 +16,7 @@ export const visitorSchema = z.object({
   phone: z
     .string()
     .min(1, "Nomor telepon wajib diisi")
-    .regex(/^(\+62|62|0)8[0-9]{8,11}$/, "Format nomor telepon Indonesia tidak valid"),
+    .regex(/^\+[1-9]\d{6,14}$/, "Format nomor telepon tidak valid (contoh: +6281234567890)"),
 });
 
 // Skema item booking
@@ -59,24 +60,8 @@ export function validateVisitDate(date: string): { valid: boolean; message?: str
 }
 
 export function validatePhone(phone: string): { valid: boolean; message?: string } {
-  const cleaned = phone.replace(/[\s-]/g, "");
-  let normalized = cleaned;
-  
-  if (cleaned.startsWith("+62")) {
-    normalized = "0" + cleaned.slice(3);
-  } else if (cleaned.startsWith("62")) {
-    normalized = "0" + cleaned.slice(2);
-  }
-  
-  if (!normalized.startsWith("08")) {
-    return { valid: false, message: "Nomor telepon harus diawali 08" };
-  }
-  
-  if (normalized.length < 10 || normalized.length > 13) {
-    return { valid: false, message: "Nomor telepon harus 10-13 digit" };
-  }
-  
-  return { valid: true };
+  // Menerima format lama "08..." maupun E.164 "+62..." / "+xx...".
+  return validatePhoneFull(phone, true);
 }
 
 export function sanitizeInput(input: string): string {
@@ -91,8 +76,7 @@ export function sanitizeEmail(email: string): string {
 }
 
 export function sanitizePhone(phone: string): string {
-  const cleaned = phone.replace(/[\s-]/g, "");
-  if (cleaned.startsWith("+62")) return "0" + cleaned.slice(3);
-  if (cleaned.startsWith("62")) return "0" + cleaned.slice(2);
-  return cleaned;
+  // Normalisasi ke E.164: "0812..." / "62812..." / "+62..." → "+62812...".
+  const { dial, national } = splitPhone(phone);
+  return joinPhone(dial, national);
 }

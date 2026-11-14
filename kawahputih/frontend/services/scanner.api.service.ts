@@ -40,10 +40,13 @@ export async function lookupTicket(ref: string): Promise<ETicket | null> {
 }
 
 export const scannerService = {
-  /** Validate a ticket. */
+  /** Validate a ticket. Envelope backend dilepas: mengembalikan { status, message, ticket }. */
   async validateTicket(payload: ValidateTicketRequest): Promise<ValidateTicketResponse> {
-    const response = await apiClient.post<ValidateTicketResponse>("/petugas/scanner/validate", payload);
-    return response;
+    const envelope = await apiClient.post<{ data?: ValidateTicketResponse }>(
+      "/petugas/scanner/validate",
+      payload
+    );
+    return envelope.data ?? { status: "INVALID", message: "Respons server tidak valid" };
   },
 
   /** Get scan history. */

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
 import { authService } from "@/services/auth.api.service";
 import { useLogout } from "@/hooks/use-auth";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/panel/panel-ui";
 
@@ -67,11 +68,12 @@ export default function ProfilePage() {
             <dt className="text-slate-500">Telepon</dt>
             <dd className="font-medium">
               {editing ? (
-                <input
+                <PhoneInput
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-brand-600"
-                  aria-label="Telepon"
+                  onChange={setPhone}
+                  inputClassName="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-brand-600"
+                  selectClassName="mt-1 h-9 rounded-md border border-slate-300 bg-slate-50 px-2 text-sm text-slate-600 outline-none focus:border-brand-600"
+                  ariaLabel="Telepon"
                 />
               ) : (
                 user.phone || "-"

@@ -18,6 +18,7 @@ import (
 	"github.com/KawahPutih/backend/internal/domain/faq"
 	"github.com/KawahPutih/backend/internal/domain/gallery"
 	tourismpackage "github.com/KawahPutih/backend/internal/domain/package"
+	"github.com/KawahPutih/backend/internal/domain/payments"
 	"github.com/KawahPutih/backend/internal/domain/role"
 	"github.com/KawahPutih/backend/internal/domain/tickettype"
 	"github.com/KawahPutih/backend/internal/domain/visitorrule"
@@ -54,7 +55,41 @@ func Run(ctx context.Context, db *gorm.DB, log *zap.Logger) error {
 	if err := seedVisitorRules(ctx, db); err != nil {
 		return fmt.Errorf("seed visitor rules: %w", err)
 	}
+	if err := seedPaymentDestinations(ctx, db); err != nil {
+		return fmt.Errorf("seed payment destinations: %w", err)
+	}
 	log.Info("seed data ready")
+	return nil
+}
+
+// seedPaymentDestinations mengisi daftar awal tujuan pembayaran (tanpa nomor
+// rekening) agar admin tinggal mengisi nomor dan nama pemiliknya.
+func seedPaymentDestinations(ctx context.Context, db *gorm.DB) error {
+	var count int64
+	if err := db.WithContext(ctx).Model(&payments.PaymentDestination{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	defaults := []payments.PaymentDestination{
+		{MethodCode: payments.MethodQRIS, ProviderName: "QRIS (semua e-wallet & mobile banking)", Active: false, SortOrder: 1},
+		{MethodCode: payments.MethodBCAVA, ProviderName: "BCA", Active: true, SortOrder: 10},
+		{MethodCode: payments.MethodBRIVA, ProviderName: "BRI", Active: true, SortOrder: 11},
+		{MethodCode: payments.MethodMandiriVA, ProviderName: "Mandiri", Active: true, SortOrder: 12},
+		{MethodCode: payments.MethodBNIVA, ProviderName: "BNI", Active: true, SortOrder: 13},
+		{MethodCode: payments.MethodGoPay, ProviderName: "GoPay", Active: true, SortOrder: 20},
+		{MethodCode: payments.MethodDANA, ProviderName: "DANA", Active: true, SortOrder: 21},
+		{MethodCode: payments.MethodOVO, ProviderName: "OVO", Active: true, SortOrder: 22},
+		{MethodCode: payments.MethodShopeePay, ProviderName: "ShopeePay", Active: true, SortOrder: 23},
+		{MethodCode: payments.MethodAlfamart, ProviderName: "Alfamart", Active: true, SortOrder: 30},
+		{MethodCode: payments.MethodIndomaret, ProviderName: "Indomaret", Active: true, SortOrder: 31},
+	}
+	for i := range defaults {
+		if err := db.WithContext(ctx).Create(&defaults[i]).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -64,6 +99,9 @@ func seedRoles(ctx context.Context, db *gorm.DB) error {
 		{Name: role.RoleManager, Description: "Monitoring, analytics, reports"},
 		{Name: role.RolePetugas, Description: "Ticket verification at the gate"},
 		{Name: role.RolePengunjung, Description: "Regular visitor account"},
+		// ROLE-20: role super_admin wajib ada agar endpoint /super-admin/*
+		// (manajemen penetapan role) punya pemilik yang sah.
+		{Name: role.RoleSuperAdmin, Description: "Super administrator: manages role assignment"},
 	}
 	for _, r := range roles {
 		var count int64
@@ -114,6 +152,8 @@ func staffAccountsFromEnv() []staffAccount {
 		{name: "Administrator Kawah Putih", email: "admin@" + staffEmailDomain, phone: "081200000002", passwordEnv: "SEED_ADMIN_PASSWORD", roleName: role.RoleAdmin},
 		{name: "Manajer Kawah Putih", email: "manager@" + staffEmailDomain, phone: "081200000003", passwordEnv: "SEED_MANAGER_PASSWORD", roleName: role.RoleManager},
 		{name: "Petugas Kawah Putih", email: "petugas@" + staffEmailDomain, phone: "081200000004", passwordEnv: "SEED_PETUGAS_PASSWORD", roleName: role.RolePetugas, gate: "Gerbang 1", shift: "Pagi (07:00 - 15:00)"},
+		// ROLE-20: akun super_admin untuk mengelola penetapan role lewat /super-admin/*.
+		{name: "Super Admin Kawah Putih", email: "superadmin@" + staffEmailDomain, phone: "081200000001", passwordEnv: "SEED_SUPERADMIN_PASSWORD", roleName: role.RoleSuperAdmin},
 	}
 	accounts := make([]staffAccount, 0, len(configured))
 	for _, account := range configured {

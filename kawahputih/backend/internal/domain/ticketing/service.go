@@ -294,13 +294,29 @@ func (s *Service) Validate(ctx context.Context, ref, gate, petugasID, petugasNam
 	}
 
 	// Valid: bakar tiket (sekali pakai), tandai booking sudah check-in.
+	// Update dilakukan secara atomik (hanya baris berstatus VALID) supaya dua
+	// pindaian hampir bersamaan tidak sama-sama dihitung valid.
 	now := time.Now()
+	burned, err := s.repo.MarkUsedIfValid(ctx, t.ID, gate, now)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	if !burned {
+		// Kalah race: petugas lain lebih dulu membakar tiket ini.
+		latest, ferr := s.repo.FindByID(ctx, t.ID)
+		if ferr != nil {
+			return nil, apperror.Internal(ferr)
+		}
+		if latest != nil {
+			t = latest
+		}
+		record(ScanUsed)
+		s.logValidation(ctx, t, "", gate, ScanUsed, "Tiket sudah digunakan.")
+		return &ValidateResult{Status: ScanUsed, Message: "Tiket sudah digunakan.", Ticket: toTicketResponse(t)}, nil
+	}
 	t.Status = TicketUsed
 	t.CheckedInAt = &now
 	t.CheckedInGate = gate
-	if err := s.repo.Update(ctx, t); err != nil {
-		return nil, apperror.Internal(err)
-	}
 	if s.bookings != nil {
 		if err := s.bookings.SetCheckedIn(ctx, t.BookingID, gate, now); err != nil {
 			s.log.Error("booking checked-in stamp failed", zap.String("booking_id", t.BookingID), zap.Error(err))

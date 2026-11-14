@@ -254,7 +254,14 @@ func (s *Service) Cancel(ctx context.Context, id, requesterID string, privileged
 	if err != nil {
 		return err
 	}
-	if b.Status != StatusPending {
+	// Admin boleh membatalkan booking dalam status apa pun: tombol "Hapus" di
+	// panel admin memanggil endpoint ini dan booking yang sudah dibayar/dipakai
+	// juga harus bisa dihapus dari daftar aktif. Pengunjung tetap hanya boleh
+	// membatalkan booking yang masih menunggu pembayaran.
+	if b.Status == StatusCancelled {
+		return ErrCannotCancel
+	}
+	if b.Status != StatusPending && !privileged {
 		return ErrCannotCancel
 	}
 	oldStatus := b.Status

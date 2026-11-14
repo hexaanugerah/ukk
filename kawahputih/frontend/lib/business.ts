@@ -67,11 +67,15 @@ export interface BookingTotals {
 
 export function calculateBookingTotals(
   items: Pick<BookingItem, "price" | "quantity">[],
-  overrides?: { discountPercent?: number; taxPercent?: number; serviceFee?: number }
+  overrides?: { discountPercent?: number; taxPercent?: number; serviceFeePercent?: number }
 ): BookingTotals {
   const subtotal = items.reduce((sum, it) => sum + it.price * it.quantity, 0);
   const totalTickets = items.reduce((sum, it) => sum + it.quantity, 0);
-  const serviceFee = totalTickets > 0 ? (overrides?.serviceFee ?? BOOKING_CONFIG.serviceFee) : 0;
+  // Biaya layanan dihitung sebagai persentase subtotal — rumus yang sama dengan
+  // backend (subtotal * rate / 100, dibulatkan). Jangan diubah ke flat rupiah
+  // tanpa mengubah backend juga, agar total yang terlihat pengguna sama dengan
+  // yang ditagih backend.
+  const serviceFee = totalTickets > 0 ? Math.round(subtotal * (overrides?.serviceFeePercent ?? BOOKING_CONFIG.serviceFeePercent) / 100) : 0;
   const discount = Math.round((subtotal * (overrides?.discountPercent ?? BOOKING_CONFIG.discountPercent)) / 100);
   const tax = Math.round(((subtotal - discount) * (overrides?.taxPercent ?? BOOKING_CONFIG.taxPercent)) / 100);
   const total = Math.max(0, subtotal - discount + serviceFee + tax);
@@ -120,7 +124,7 @@ export function sortData<T>(rows: T[], key: keyof T | string, dir: "asc" | "desc
   return copy;
 }
 
-/** Ambil angka acak dengan distribusi (untuk seed data & simulasi). */
+/** Ambil angka acak dengan distribusi (dipakai utilitas demo & data contoh). */
 export function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }

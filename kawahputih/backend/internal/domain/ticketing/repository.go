@@ -11,6 +11,11 @@ import (
 type Repository interface {
 	Create(ctx context.Context, t *Ticket) error
 	Update(ctx context.Context, t *Ticket) error
+	// MarkUsedIfValid membakar tiket secara atomik: hanya mengembalikan true
+	// bila baris yang berstatus VALID berhasil diubah menjadi USED. Mencegah
+	// dua petugas yang memindai QR yang sama secara hampir bersamaan dihitung
+	// ganda (double check-in).
+	MarkUsedIfValid(ctx context.Context, ticketID, gate string, at time.Time) (bool, error)
 	FindByID(ctx context.Context, id string) (*Ticket, error)
 	FindByQR(ctx context.Context, qr string) (*Ticket, error)
 	FindByBookingID(ctx context.Context, bookingID string) (*Ticket, error)
@@ -35,6 +40,20 @@ func (r *repository) Create(ctx context.Context, t *Ticket) error {
 
 func (r *repository) Update(ctx context.Context, t *Ticket) error {
 	return r.db.WithContext(ctx).Save(t).Error
+}
+
+func (r *repository) MarkUsedIfValid(ctx context.Context, ticketID, gate string, at time.Time) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&Ticket{}).
+		Where("id = ? AND status = ?", ticketID, TicketValid).
+		Updates(map[string]interface{}{
+			"status":          TicketUsed,
+			"checked_in_at":   at,
+			"checked_in_gate": gate,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 func (r *repository) findBy(ctx context.Context, where string, arg interface{}) (*Ticket, error) {
@@ -75,8 +94,13 @@ func (r *repository) ListByUserID(ctx context.Context, userID string) ([]Ticket,
 }
 
 func (r *repository) SetStatusForBooking(ctx context.Context, bookingID, status string) (int64, error) {
-	res := r.db.WithContext(ctx).Model(&Ticket{}).
-		Where("booking_id = ?", bookingID).Update("status", status)
+	q := r.db.WithContext(ctx).Model(&Ticket{}).Where("booking_id = ?", bookingID)
+	if status == TicketValid {
+		// Tiket yang sudah digunakan tidak boleh dihidupkan kembali oleh
+		// perubahan status booking (mis. override admin ke PAID/CONFIRMED).
+		q = q.Where("status <> ?", TicketUsed)
+	}
+	res := q.Update("status", status)
 	return res.RowsAffected, res.Error
 }
 

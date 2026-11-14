@@ -12,6 +12,8 @@ import { BOOKING_CONFIG } from "@/config/app.config";
 import type { Ticket } from "@/types/api";
 import type { TourismPackage } from "@/types/destination";
 import { bookingSchema, validateVisitDate, sanitizeInput, sanitizeEmail, sanitizePhone } from "@/features/booking/schemas/booking.schema";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { validatePhoneFull } from "@/lib/phone";
 import { DatePicker } from "@/components/inputs/date-picker";
 
 // Booking form (paket wisata) — membuat booking dari halaman detail paket. Memakai booking service backend; setelah create, lanjut ke halaman payment.
@@ -96,7 +98,7 @@ export function BookingForm({ pkg }: { pkg: TourismPackage }) {
   // Validasi real-time untuk telepon
   useEffect(() => {
     if (phone) {
-      const validation = validatePhone(phone);
+      const validation = validatePhoneFull(phone);
       if (!validation.valid) {
         setErrors((prev) => ({ ...prev, phone: validation.message! }));
       } else {
@@ -267,13 +269,10 @@ export function BookingForm({ pkg }: { pkg: TourismPackage }) {
 
       <div>
         <label className="mb-1 block text-sm font-medium">Nomor Telepon</label>
-        <input
-          type="tel"
+        <PhoneInput
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="08xxxxxxxxxx"
-          className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-brand-600"
-          aria-invalid={!!errors.phone}
+          onChange={setPhone}
+          invalid={!!errors.phone}
         />
         {errors.phone && <p className="mt-1 text-xs text-red-600" role="alert">{errors.phone}</p>}
       </div>
@@ -292,26 +291,4 @@ export function BookingForm({ pkg }: { pkg: TourismPackage }) {
       </button>
     </form>
   );
-}
-
-// Helper validasi telepon (disalin dari schema untuk dipakai inline)
-function validatePhone(phone: string): { valid: boolean; message?: string } {
-  const cleaned = phone.replace(/[\s-]/g, "");
-  let normalized = cleaned;
-  
-  if (cleaned.startsWith("+62")) {
-    normalized = "0" + cleaned.slice(3);
-  } else if (cleaned.startsWith("62")) {
-    normalized = "0" + cleaned.slice(2);
-  }
-  
-  if (!normalized.startsWith("08")) {
-    return { valid: false, message: "Nomor telepon harus diawali 08" };
-  }
-  
-  if (normalized.length < 10 || normalized.length > 13) {
-    return { valid: false, message: "Nomor telepon harus 10-13 digit" };
-  }
-  
-  return { valid: true };
 }

@@ -55,3 +55,14 @@ type StaffStats struct {
 	Managers    int64            `json:"managers"`
 	Petugas     int64            `json:"petugas"`
 }
+
+// CreateStaffInput adalah data akun staf baru dari panel admin.
+type CreateStaffInput struct {
+	Name     string
+	Email    string
+	Phone    string
+	Password string
+	Role     string // ADMIN | MANAGER | PETUGAS
+	Gate     string
+	Shift    string
+}

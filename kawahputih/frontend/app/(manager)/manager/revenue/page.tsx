@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { LineChart, ListPanel, PageHeader, SectionCard, StatCard, StatGrid } from "@/components/panel/panel-ui";
 import { DateRangeFilter } from "@/components/panel/date-range-filter";
 import { analyticsService } from "@/services/analytics.api.service";
-import type { ManagerAnalytics } from "@/types/api";
+import { paymentService } from "@/services/payment.api.service";
+import { paymentMethodLabel } from "@/config/payment.config";
+import type { ManagerAnalytics, ManagerPaymentReport } from "@/types/api";
 import type { DateRangePreset } from "@/types/domain";
 import { exportReportPDF, exportReportExcel, type ReportData } from "@/lib/report-export";
 import { rupiah } from "@/lib/business";
@@ -15,6 +17,7 @@ import { rupiah } from "@/lib/business";
 
 export default function ManagerRevenuePage() {
   const [analytics, setAnalytics] = useState<ManagerAnalytics | null>(null);
+  const [paymentReport, setPaymentReport] = useState<ManagerPaymentReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangePreset>("30d");
   const [custom, setCustom] = useState<{ from: string; to: string } | undefined>();
@@ -24,8 +27,14 @@ export default function ManagerRevenuePage() {
     setLoading(true);
     (async () => {
       try {
-        const a = await analyticsService.getManagerAnalytics({ range, custom });
-        if (alive) setAnalytics(a);
+        const [a, report] = await Promise.all([
+          analyticsService.getManagerAnalytics({ range, custom }),
+          paymentService.getManagerReport({ from: custom?.from, to: custom?.to }).catch(() => null),
+        ]);
+        if (alive) {
+          setAnalytics(a);
+          setPaymentReport(report);
+        }
       } catch (error: any) {
         toast.error("Gagal memuat analytics", { description: error.message });
       } finally {
@@ -142,6 +151,41 @@ export default function ManagerRevenuePage() {
           />
         </SectionCard>
       </div>
+
+      {/* Ringkasan pembayaran: pendapatan vs dana yang sudah cair adalah dua hal berbeda. */}
+      <SectionCard
+        title="Ringkasan Pembayaran"
+        subtitle={paymentReport?.range_label ?? "Ringkasan transaksi gateway"}
+        className="mt-3"
+      >
+        {paymentReport ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <StatGrid cols={2}>
+              <StatCard label="Total Pendapatan" value={rupiah(paymentReport.total_revenue)} />
+              <StatCard label="Transaksi Berhasil" value={String(paymentReport.total_successful)} />
+              <StatCard label="Menunggu Pembayaran" value={String(paymentReport.total_pending)} />
+              <StatCard label="Gagal / Kedaluwarsa" value={`${paymentReport.total_failed} / ${paymentReport.total_expired}`} />
+              <StatCard label="Dana Sudah Cair" value={rupiah(paymentReport.total_settled)} />
+              <StatCard label="Dana Belum Cair" value={rupiah(paymentReport.total_unsettled)} />
+            </StatGrid>
+            <div>
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#698097]">Per Metode Pembayaran</p>
+              <ListPanel
+                items={
+                  paymentReport.by_method.length > 0
+                    ? paymentReport.by_method.map((m) => ({
+                        name: paymentMethodLabel(m.method),
+                        value: `${rupiah(m.total)} (${m.count})`,
+                      }))
+                    : [{ name: "Belum ada transaksi berhasil", value: "—" }]
+                }
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="py-4 text-center text-sm text-[#698097]">Ringkasan pembayaran belum tersedia.</p>
+        )}
+      </SectionCard>
     </div>
   );
 }

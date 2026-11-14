@@ -9,6 +9,10 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+// Detail paket dibaca dari CMS backend — render saat request agar build
+// tidak butuh backend hidup dan data selalu terbaru.
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const pkg = await destinationService.get(id);

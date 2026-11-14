@@ -73,3 +73,10 @@ const (
 
 // RevenueStatuses adalah status booking yang dihitung sebagai stok terjual dan pendapatan. Dipakai bersama analytics/laporan.
 var RevenueStatuses = []string{StatusPaid, StatusConfirmed, StatusUsed}
+
+// QuotaStatuses adalah status booking yang memakai kapasitas tiket untuk suatu
+// tanggal kunjungan. PENDING ikut dihitung supaya pengguna tidak bisa menumpuk
+// banyak booking menunggu pembayaran melebihi kapasitas lalu membayarnya
+// sekaligus (overbook). Booking PENDING kedaluwarsa otomatis (±30 menit),
+// sehingga kuota kembali kosong bila pembayaran tidak dilakukan.
+var QuotaStatuses = []string{StatusPending, StatusPaid, StatusConfirmed, StatusUsed}

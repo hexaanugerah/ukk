@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +19,14 @@ type Repository interface {
 	FindStaffByID(ctx context.Context, id string) (*Staff, error)
 	StaffStats(ctx context.Context) (*StaffStats, error)
 	SetStaffActive(ctx context.Context, id string, active bool) error
+	CreateStaff(ctx context.Context, in CreateStaffInput) error
 }
+
+// Kesalahan spesifik repository agar handler bisa memetakan HTTP status dengan tepat.
+var (
+	ErrEmailExists  = errors.New("email already registered")
+	ErrRoleNotFound = errors.New("role not found")
+)
 
 type repository struct{ db *gorm.DB }
 
@@ -184,4 +193,57 @@ func (r *repository) SetStaffActive(ctx context.Context, id string, active bool)
 		return errors.New("staff not found")
 	}
 	return res.Error
+}
+
+// staffUserRow menyisipkan baris baru ke users tanpa mengimpor domain auth,
+// mengikuti pola yang sama dengan seed.go.
+type staffUserRow struct {
+	ID           string `gorm:"type:char(36);primaryKey"`
+	Name         string
+	Email        string
+	Phone        string
+	PasswordHash string
+	IsActive     bool
+	IsVerified   bool
+	Gate         string
+	Shift        string
+}
+
+func (staffUserRow) TableName() string { return "users" }
+
+func (r *repository) CreateStaff(ctx context.Context, in CreateStaffInput) error {
+	var count int64
+	if err := r.db.WithContext(ctx).Table("users").Where("email = ?", in.Email).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrEmailExists
+	}
+
+	var roleRow struct {
+		ID string
+	}
+	if err := r.db.WithContext(ctx).Table("roles").Select("id").Where("name = ?", in.Role).Scan(&roleRow).Error; err != nil {
+		return err
+	}
+	if roleRow.ID == "" {
+		return ErrRoleNotFound
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), 12)
+	if err != nil {
+		return err
+	}
+	row := staffUserRow{
+		ID: uuid.NewString(), Name: in.Name, Email: in.Email, Phone: in.Phone,
+		PasswordHash: string(hash), IsActive: true, IsVerified: true,
+		Gate: in.Gate, Shift: in.Shift,
+	}
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return err
+	}
+	if err := r.db.WithContext(ctx).Exec("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", row.ID, roleRow.ID).Error; err != nil {
+		return err
+	}
+	return nil
 }

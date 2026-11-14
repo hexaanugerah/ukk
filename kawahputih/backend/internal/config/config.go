@@ -20,12 +20,16 @@ type Config struct {
 	SMTP        SMTPConfig
 	GoogleOAuth GoogleOAuthConfig
 	Midtrans    MidtransConfig
+	Storage     StorageConfig
 }
 
 type AppConfig struct {
 	Env         string
 	Port        string
 	FrontendURL string
+	// PublicURL adalah alamat publik backend, dipakai menyusun URL webhook
+	// payment gateway yang didaftarkan di dashboard provider.
+	PublicURL string
 }
 
 type DatabaseConfig struct {
@@ -63,6 +67,10 @@ type MidtransConfig struct {
 	IsProduction bool
 }
 
+type StorageConfig struct {
+	UploadDir string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 	env := getEnv("APP_ENV", "local")
@@ -84,6 +92,7 @@ func Load() (*Config, error) {
 		App: AppConfig{
 			Env: env, Port: getEnv("APP_PORT", "8080"),
 			FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
+			PublicURL:   getEnv("BACKEND_PUBLIC_URL", "http://localhost:"+getEnv("APP_PORT", "8080")),
 		},
 		Database: DatabaseConfig{
 			Host: getEnv("DB_HOST", "127.0.0.1"), Port: getEnv("DB_PORT", "3306"),
@@ -109,6 +118,9 @@ func Load() (*Config, error) {
 		Midtrans: MidtransConfig{
 			ServerKey:    getEnv("MIDTRANS_SERVER_KEY", ""),
 			IsProduction: midtransProduction,
+		},
+		Storage: StorageConfig{
+			UploadDir: getEnv("UPLOAD_DIR", "./uploads"),
 		},
 	}
 

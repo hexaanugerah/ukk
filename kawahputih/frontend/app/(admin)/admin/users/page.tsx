@@ -9,8 +9,10 @@ import { paginate, searchIn, sortData } from "@/lib/business";
 import type { Staff } from "@/types/api";
 
 const SHIFTS = ["PAGI", "SIANG", "MALAM"] as const;
+// Role harus cocok dengan nama role kanonik di backend (roles.name).
+const ROLES = ["PETUGAS", "MANAGER", "ADMIN"] as const;
 
-const emptyForm = { id: "", name: "", email: "", phone: "", role: "PETUGAS GERBANG", shift: "PAGI" as typeof SHIFTS[number], gate: "Gerbang 1" };
+const emptyForm = { id: "", name: "", email: "", phone: "", password: "", role: "PETUGAS", shift: "PAGI" as typeof SHIFTS[number], gate: "Gerbang 1" };
 
 export default function AdminStaffPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -55,7 +57,7 @@ export default function AdminStaffPage() {
   }
 
   function openEdit(s: Staff) {
-    setForm({ id: s.id, name: s.name, email: s.email, phone: s.phone, role: s.role, shift: s.shift as typeof SHIFTS[number], gate: s.gate });
+    setForm({ id: s.id, name: s.name, email: s.email, phone: s.phone, password: "", role: s.role, shift: s.shift as typeof SHIFTS[number], gate: s.gate });
     setErrors({});
   }
 
@@ -65,6 +67,13 @@ export default function AdminStaffPage() {
     if (form.name.trim().length < 3) errs.name = "Nama minimal 3 karakter";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = "Email tidak valid";
     if (!/^08\d{8,11}$/.test(form.phone.replace(/[\s-]/g, ""))) errs.phone = "Nomor HP tidak valid";
+    // Password wajib saat membuat akun baru: kebijakan backend 8-72 karakter
+    // dengan huruf besar, huruf kecil, dan angka.
+    if (!form.id) {
+      const pw = form.password;
+      if (pw.length < 8 || pw.length > 72) errs.password = "Password minimal 8 dan maksimal 72 karakter";
+      else if (!(/[A-Z]/.test(pw) && /[a-z]/.test(pw) && /\d/.test(pw))) errs.password = "Password harus mengandung huruf besar, huruf kecil, dan angka";
+    }
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -74,12 +83,30 @@ export default function AdminStaffPage() {
         // Catatan: backend saat ini hanya mendukung update status, belum update penuh. Untuk update penuh dibutuhkan endpoint khusus.
         toast.success("Data petugas diperbarui (hanya status yang didukung backend saat ini)");
       } else {
-        toast.success("Petugas baru ditambahkan (membutuhkan endpoint create di backend)");
+        await staffService.create({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.replace(/[\s-]/g, ""),
+          password: form.password,
+          role: form.role,
+          gate: form.gate,
+          shift: form.shift,
+        });
+        toast.success(`Petugas baru "${form.name.trim()}" ditambahkan`);
       }
       setForm(null);
       loadStaff();
     } catch (err: any) {
       const message = err instanceof StaffError ? err.message : err.message || "Gagal menyimpan petugas";
+      // Petakan field error dari validasi backend (envelope.errors) ke form.
+      const fieldErrors = err?.data?.errors;
+      if (Array.isArray(fieldErrors)) {
+        const mapped: Record<string, string> = {};
+        for (const fe of fieldErrors) {
+          if (fe?.field && fe?.message) mapped[fe.field] = fe.message;
+        }
+        if (Object.keys(mapped).length > 0) setErrors(mapped);
+      }
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -228,12 +255,27 @@ export default function AdminStaffPage() {
                 <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="h-9 w-full rounded-md border border-[#d7e3ed] px-3 text-sm outline-none focus:border-[#1768ad]" />
                 {errors.phone && <span className="text-xs text-red-600">{errors.phone}</span>}
               </label>
+              {!form.id && (
+                <label className="block">
+                  <span className="mb-1 block text-xs font-semibold text-[#29445e]">Password*</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    placeholder="Min. 8 karakter, huruf besar/kecil, angka"
+                    className="h-9 w-full rounded-md border border-[#d7e3ed] px-3 text-sm outline-none focus:border-[#1768ad]"
+                  />
+                  {errors.password && <span className="text-xs text-red-600">{errors.password}</span>}
+                </label>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-1 block text-xs font-semibold text-[#29445e]">Role</span>
                   <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="h-9 w-full rounded-md border border-[#d7e3ed] px-2 text-sm outline-none focus:border-[#1768ad]">
-                    {(["PETUGAS GERBANG", "PETUGAS TIKET", "SUPERVISOR", "ADMIN"] as const).map((r) => <option key={r} value={r}>{r}</option>)}
+                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
+                  {errors.role && <span className="text-xs text-red-600">{errors.role}</span>}
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-xs font-semibold text-[#29445e]">Shift</span>

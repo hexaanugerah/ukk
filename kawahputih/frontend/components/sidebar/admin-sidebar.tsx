@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Users,
+  ShieldCheck,
   FileText,
   Image as ImageIcon,
   Package,
@@ -15,6 +16,7 @@ import {
 const LINKS = [
   { href: "/admin/dashboard", label: "Ringkasan", icon: LayoutDashboard },
   { href: "/admin/users", label: "Pengguna", icon: Users },
+  { href: "/admin/roles", label: "Roles", icon: ShieldCheck },
   { href: "/admin/articles", label: "Artikel", icon: FileText },
   { href: "/admin/gallery", label: "Galeri", icon: ImageIcon },
   { href: "/admin/packages", label: "Paket Wisata", icon: Package },

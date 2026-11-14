@@ -7,6 +7,9 @@ var (
 	ErrEmailAlreadyExists   = apperror.Conflict("Data sudah terdaftar.")
 	ErrInvalidCredentials   = apperror.Unauthorized("Email atau password tidak valid.").WithCode("AUTH_001")
 	ErrAccountDeactivated   = apperror.Forbidden("Akun Anda tidak aktif. Hubungi administrator.")
+	// AUTH-06: login wajib email terverifikasi. Pesan mengarahkan pengguna ke
+	// kotak masuk agar alur "kirim ulang verifikasi" bisa lanjut dari halaman login.
+	ErrEmailNotVerified     = apperror.Forbidden("Email belum diverifikasi. Cek kotak masuk Anda untuk link verifikasi atau minta kirim ulang.").WithCode("AUTH_004")
 	ErrInvalidToken         = apperror.Unauthorized("Sesi tidak valid atau sudah kedaluwarsa. Silakan login kembali.").WithCode("AUTH_002")
 	ErrTokenRevoked         = apperror.Unauthorized("Sesi sudah berakhir. Silakan login kembali.").WithCode("AUTH_002")
 	ErrOAuthNotConfigured   = apperror.Validation("Login Google belum tersedia.")

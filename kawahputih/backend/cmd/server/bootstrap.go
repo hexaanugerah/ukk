@@ -67,7 +67,8 @@ func migrateAndSeed(db *gorm.DB, log *zap.Logger) error {
 		&destinationinfo.DestinationInfo{}, &faq.FAQ{}, &facility.Facility{}, &visitorrule.VisitorRule{},
 		&publicdomain.Destination{}, &publicdomain.Review{}, &publicdomain.Content{},
 		&booking.Booking{}, &booking.BookingItem{},
-		&payments.Payment{},
+		&payments.Payment{}, &payments.PaymentDestination{},
+		&payments.PaymentSetting{}, &payments.PaymentMethodConfig{}, &payments.PaymentWebhookLog{},
 		&ticketing.Ticket{}, &ticketing.ScanRecord{},
 		&audit.AuditLog{},
 	); err != nil {

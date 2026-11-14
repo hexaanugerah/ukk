@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,8 @@ type TicketIssuer interface {
 
 type MidtransGateway interface {
 	CreateTransaction(ctx context.Context, orderID string, grossAmount int64, customerName, customerEmail, itemName string) (string, error)
+	CreateQRIS(ctx context.Context, orderID string, grossAmount int64) (string, error)
+	Configured() bool
 	GetTransactionStatus(ctx context.Context, orderID string) (status, fraudStatus string, err error)
 	VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool
 }
@@ -49,8 +52,15 @@ type Service struct {
 	midtrans  MidtransGateway
 	log       *zap.Logger
 	audit     AuditLogger
+	settings  *SettingsService
 	env       string
 	webhookMu sync.Mutex
+}
+
+// WithSettings menyambungkan layanan konfigurasi (idempotency log, metode aktif).
+func (s *Service) WithSettings(cfg *SettingsService) *Service {
+	s.settings = cfg
+	return s
 }
 
 func NewService(repo Repository, bookings BookingGateway, tickets TicketIssuer, midtrans MidtransGateway, log *zap.Logger, audit AuditLogger, environment ...string) *Service {
@@ -73,13 +83,15 @@ func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int
 	reference := generateReference()
 
 	p := &Payment{
-		BookingID:       bookingID,
-		Method:          MethodQRIS,
-		Reference:       reference,
-		Amount:          amount,
-		Status:          StatusPending,
-		ExpiredAt:       time.Now().Add(PaymentWindow),
-		MidtransOrderID: reference,
+		BookingID:        bookingID,
+		Provider:         ProviderMidtrans,
+		Method:           MethodQRIS,
+		Reference:        reference,
+		Amount:           amount,
+		Status:           StatusPending,
+		SettlementStatus: SettlementUnsettled,
+		ExpiredAt:        time.Now().Add(PaymentWindow),
+		MidtransOrderID:  reference,
 	}
 	if err := s.repo.Create(ctx, p); err != nil {
 		existing, err2 := s.repo.FindLatestByBooking(ctx, bookingID)
@@ -89,22 +101,45 @@ func (s *Service) StartPayment(ctx context.Context, bookingID string, amount int
 		return existing, nil
 	}
 
-	if s.midtrans != nil {
+	if s.midtrans != nil && s.midtrans.Configured() {
 		snap, err := s.bookings.GetSnapshot(ctx, bookingID, "", true)
 		if err == nil && snap != nil {
-			redirectURL, err := s.midtrans.CreateTransaction(ctx, p.MidtransOrderID, amount, snap.VisitorName, snap.Email, "Kawah Putih Booking")
-			if err != nil {
-				s.log.Error("midtrans create transaction failed", zap.String("booking_id", bookingID), zap.Error(err))
-			} else {
-				p.MidtransRedirect = redirectURL
-				if err := s.repo.Update(ctx, p); err != nil {
-					s.log.Error("midtrans redirect url update failed", zap.String("booking_id", bookingID), zap.Error(err))
-				}
-			}
+			s.ensureProviderPaymentData(ctx, p, snap.VisitorName, snap.Email)
 		}
 	}
 
 	return p, nil
+}
+
+// ensureProviderPaymentData memastikan payment memiliki data provider
+// (QRIS qr_string atau Snap redirect URL) sesuai metodenya.
+func (s *Service) ensureProviderPaymentData(ctx context.Context, p *Payment, customerName, customerEmail string) {
+	if s.midtrans == nil || !s.midtrans.Configured() {
+		return
+	}
+	if p.Method == MethodQRIS && p.QrisString == "" {
+		qrString, err := s.midtrans.CreateQRIS(ctx, p.MidtransOrderID, p.Amount)
+		if err != nil {
+			s.log.Error("midtrans create QRIS failed", zap.String("booking_id", p.BookingID), zap.Error(err))
+			return
+		}
+		p.QrisString = qrString
+		if err := s.repo.Update(ctx, p); err != nil {
+			s.log.Error("midtrans qris string update failed", zap.String("booking_id", p.BookingID), zap.Error(err))
+		}
+		return
+	}
+	if p.Method != MethodQRIS && p.MidtransRedirect == "" {
+		redirectURL, err := s.midtrans.CreateTransaction(ctx, p.MidtransOrderID, p.Amount, customerName, customerEmail, "Kawah Putih Booking")
+		if err != nil {
+			s.log.Error("midtrans create transaction failed", zap.String("booking_id", p.BookingID), zap.Error(err))
+			return
+		}
+		p.MidtransRedirect = redirectURL
+		if err := s.repo.Update(ctx, p); err != nil {
+			s.log.Error("midtrans redirect url update failed", zap.String("booking_id", p.BookingID), zap.Error(err))
+		}
+	}
 }
 
 func (s *Service) ExpirePendingByBooking(ctx context.Context, bookingID string) error {
@@ -114,7 +149,7 @@ func (s *Service) ExpirePendingByBooking(ctx context.Context, bookingID string) 
 	return nil
 }
 
-func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount string) error {
+func (s *Service) HandleMidtransNotification(ctx context.Context, notificationID, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount string) error {
 	if orderID == "" || transactionStatus == "" || statusCode == "" || grossAmount == "" || signatureKey == "" {
 		return apperror.Validation("Data notifikasi pembayaran tidak lengkap.")
 	}
@@ -124,6 +159,24 @@ func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, trans
 	if !s.midtrans.VerifySignature(orderID, statusCode, grossAmount, signatureKey) {
 		return apperror.Unauthorized("Permintaan pembayaran tidak valid.")
 	}
+
+	// Idempotency: notifikasi dengan kunci sama tidak boleh diproses dua kali.
+	if notificationID == "" {
+		notificationID = orderID + ":" + transactionStatus + ":" + statusCode
+	}
+	var logID string
+	if s.settings != nil {
+		dup, id, err := s.settings.RecordWebhookLog(ctx, notificationID, orderID, transactionStatus)
+		if err != nil {
+			return err
+		}
+		if dup {
+			s.log.Info("duplicate payment webhook ignored", zap.String("notification_id", notificationID))
+			return nil
+		}
+		logID = id
+	}
+
 	s.webhookMu.Lock()
 	defer s.webhookMu.Unlock()
 
@@ -147,30 +200,51 @@ func (s *Service) HandleMidtransNotification(ctx context.Context, orderID, trans
 		return apperror.NotFound("Data booking pembayaran tidak ditemukan.")
 	}
 
+	var handleErr error
 	switch transactionStatus {
 	case "capture":
 		if fraudStatus == "accept" {
-			return s.markPaidFromMidtrans(ctx, p, snap)
+			handleErr = s.markPaidFromMidtrans(ctx, p, snap)
+		} else if fraudStatus == "challenge" {
+			handleErr = s.markProcessingFromMidtrans(ctx, p)
+		} else {
+			handleErr = apperror.Validation("Fraud status notifikasi pembayaran tidak valid.")
 		}
-		if fraudStatus == "challenge" {
-			return s.markProcessingFromMidtrans(ctx, p)
-		}
-		return apperror.Validation("Fraud status notifikasi pembayaran tidak valid.")
 	case "settlement":
-		return s.markPaidFromMidtrans(ctx, p, snap)
+		// Dana sudah cair ke rekening merchant — status settlement terpisah dari PAID.
+		handleErr = s.markPaidFromMidtrans(ctx, p, snap)
+		if handleErr == nil {
+			p.SettlementStatus = SettlementSettled
+			if err := s.repo.Update(ctx, p); err != nil {
+				handleErr = apperror.Internal(err)
+			}
+		}
 	case "pending":
-		return s.markProcessingFromMidtrans(ctx, p)
+		handleErr = s.markProcessingFromMidtrans(ctx, p)
 	case "deny", "cancel", "failure":
-		return s.markFailedFromMidtrans(ctx, p, snap)
+		handleErr = s.markFailedFromMidtrans(ctx, p, snap)
+	case "refund", "partial_refund":
+		p.Status = StatusRefunded
+		p.SettlementStatus = SettlementRefunded
+		handleErr = s.repo.Update(ctx, p)
 	case "expire":
 		if p.Status == StatusPaid || p.Status == StatusExpired {
-			return nil
+			handleErr = nil
+			break
 		}
-		_, err := s.expirePayment(ctx, p)
-		return err
+		_, handleErr = s.expirePayment(ctx, p)
 	default:
-		return nil
+		handleErr = nil
 	}
+
+	if s.settings != nil && logID != "" {
+		if handleErr != nil {
+			s.settings.MarkWebhookLog(ctx, logID, WebhookFailed)
+		} else {
+			s.settings.MarkWebhookLog(ctx, logID, WebhookProcessed)
+		}
+	}
+	return handleErr
 }
 
 func (s *Service) markPaidFromMidtrans(ctx context.Context, p *Payment, snap *booking.Snapshot) error {
@@ -254,6 +328,16 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 		if !ValidMethod(method) {
 			return nil, nil, "", apperror.Validation(fmt.Sprintf("Metode pembayaran %q tidak didukung.", method))
 		}
+		// Metode yang dinonaktifkan admin tidak boleh dipakai membuat transaksi.
+		if s.settings != nil {
+			enabled, err := s.settings.IsMethodEnabled(ctx, method)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			if !enabled {
+				return nil, nil, "", apperror.Validation(fmt.Sprintf("Metode pembayaran %q sedang tidak tersedia.", method)).WithCode("PAY_007")
+			}
+		}
 		if ewalletNumber != "" && EwalletNumberFromMethod(method) == "" {
 			return nil, nil, "", apperror.Validation("Nomor e-Wallet hanya bisa disematkan untuk metode yang mendukung.")
 		}
@@ -263,6 +347,10 @@ func (s *Service) Process(ctx context.Context, bookingID, requesterID string, pr
 			return nil, nil, "", apperror.Internal(err)
 		}
 	}
+
+	// Siapkan data provider untuk metode terpilih (QRIS string / Snap URL)
+	// agar frontend selalu punya cara pembayaran yang bisa ditampilkan.
+	s.ensureProviderPaymentData(ctx, pay, snap.VisitorName, snap.Email)
 
 	if time.Now().After(pay.ExpiredAt) {
 		outcome, err := s.expirePayment(ctx, pay)
@@ -439,6 +527,114 @@ func (s *Service) MarkDownloaded(ctx context.Context, bookingID, requesterID str
 }
 
 func (s *Service) ListAll(ctx context.Context, page, limit int, status string) ([]PaymentDTO, int64, error) {
+	return s.ListFiltered(ctx, page, limit, ListFilter{Status: status})
+}
+
+// ListFiltered menampilkan pembayaran admin dengan filter tanggal/metode/status.
+func (s *Service) ListFiltered(ctx context.Context, page, limit int, filter ListFilter) ([]PaymentDTO, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	filter.Offset = (page - 1) * limit
+	filter.Limit = limit
+	payments, total, err := s.repo.ListAll(ctx, filter)
+	if err != nil {
+		return nil, 0, apperror.Internal(err)
+	}
+	out := make([]PaymentDTO, 0, len(payments))
+	for i := range payments {
+		out = append(out, toPaymentDTO(&payments[i]))
+	}
+	return out, total, nil
+}
+
+// AttachProof menyimpan bukti pembayaran yang diunggah pengunjung. Bukti ini
+// wajib ada sebelum admin dapat memverifikasi pembayaran manual menjadi PAID.
+func (s *Service) AttachProof(ctx context.Context, bookingID, requesterID string, privileged bool, proofURL string) (*PaymentDTO, error) {
+	if strings.TrimSpace(proofURL) == "" {
+		return nil, apperror.Validation("Bukti pembayaran tidak valid.")
+	}
+	snap, err := s.bookings.GetSnapshot(ctx, bookingID, requesterID, privileged)
+	if err != nil {
+		return nil, err
+	}
+	if snap.Status != booking.StatusPending {
+		return nil, apperror.Conflict("Booking ini tidak sedang menunggu pembayaran.")
+	}
+	pay, err := s.repo.FindLatestByBooking(ctx, bookingID)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	if pay == nil {
+		return nil, ErrNotFound
+	}
+	now := time.Now()
+	pay.ProofURL = proofURL
+	pay.ProofUploadedAt = &now
+	if err := s.repo.Update(ctx, pay); err != nil {
+		return nil, apperror.Internal(err)
+	}
+	return toPaymentDTOPtr(pay), nil
+}
+
+// ManagerReport merangkum pembayaran untuk dashboard manager. Pendapatan hanya
+// menghitung transaksi PAID; settlement dilaporkan terpisah dan tidak disamakan
+// dengan dana yang sudah masuk rekening bank.
+func (s *Service) ManagerReport(ctx context.Context, from, to string) (*ManagerPaymentReport, error) {
+	counts, err := s.repo.CountByStatus(ctx)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	totals, err := s.repo.MethodTotalsBetween(ctx, from, to)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	settled, err := s.repo.SumSettledBetween(ctx, from, to, true)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+	unsettled, err := s.repo.SumSettledBetween(ctx, from, to, false)
+	if err != nil {
+		return nil, apperror.Internal(err)
+	}
+
+	var revenue int64
+	var successful int64
+	for _, t := range totals {
+		revenue += t.Total
+		successful += t.Count
+	}
+	report := &ManagerPaymentReport{
+		RangeLabel:      formatRangeLabel(from, to),
+		From:            from,
+		To:              to,
+		TotalRevenue:    revenue,
+		TotalSuccessful: successful,
+		TotalPending:    counts[StatusPending] + counts[StatusProcessing],
+		TotalFailed:     counts[StatusFailed],
+		TotalExpired:    counts[StatusExpired],
+		TotalSettled:    settled,
+		TotalUnsettled:  unsettled,
+		ByMethod:        totals,
+		StatusCounts:    counts,
+	}
+	if report.ByMethod == nil {
+		report.ByMethod = []MethodTotal{}
+	}
+	return report, nil
+}
+
+func formatRangeLabel(from, to string) string {
+	if from == "" && to == "" {
+		return "Semua periode"
+	}
+	return from + " s/d " + to
+}
+
+func (s *Service) ListAllLegacy(ctx context.Context, page, limit int, status string) ([]PaymentDTO, int64, error) {
 	offset := (page - 1) * limit
 	if page < 1 {
 		offset = 0
@@ -446,7 +642,7 @@ func (s *Service) ListAll(ctx context.Context, page, limit int, status string) (
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	payments, total, err := s.repo.ListAll(ctx, offset, limit, status)
+	payments, total, err := s.repo.ListAll(ctx, ListFilter{Offset: offset, Limit: limit, Status: status})
 	if err != nil {
 		return nil, 0, apperror.Internal(err)
 	}
@@ -469,6 +665,13 @@ func (s *Service) SetStatusByAdmin(ctx context.Context, paymentID, status string
 	case StatusPaid, StatusFailed, StatusExpired, StatusRefunded, StatusPending, StatusProcessing:
 	default:
 		return nil, nil, ErrInvalidStatus
+	}
+
+	// Admin tidak boleh mengubah transaksi PENDING menjadi PAID tanpa bukti
+	// pembayaran yang sah. Pembayaran gateway diverifikasi oleh webhook, bukan
+	// oleh klaim manual admin.
+	if status == StatusPaid && pay.Status != StatusPaid && strings.TrimSpace(pay.ProofURL) == "" {
+		return nil, nil, apperror.Validation("Pembayaran belum memiliki bukti bayar; verifikasi lewat provider atau unggahan bukti pengunjung.").WithCode("PAY_006")
 	}
 
 	var snap *booking.Snapshot

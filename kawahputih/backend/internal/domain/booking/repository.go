@@ -17,7 +17,7 @@ type Repository interface {
 	ListMine(ctx context.Context, userID string, offset, limit int, status string) ([]Booking, int64, error)
 	ListAll(ctx context.Context, offset, limit int, status, search string) ([]Booking, int64, error)
 	ListByVisitDate(ctx context.Context, date string, offset, limit int) ([]Booking, int64, error)
-	// SoldByTicketOn mengembalikan ticket_id ke total jumlah untuk booking berstatus revenue (PAID/CONFIRMED/USED) pada tanggal tertentu. Booking pending belum memakai kapasitas sampai dibayar, agar keranjang yang ditinggal tidak memblokir pengunjung lain.
+	// SoldByTicketOn mengembalikan ticket_id ke total jumlah untuk booking yang memakai kapasitas (PENDING/PAID/CONFIRMED/USED) pada tanggal tertentu. PENDING ikut dihitung agar booking menunggu pembayaran tidak bisa menumpuk melebihi kuota (overbook); booking PENDING kedaluwarsa otomatis sehingga kuota kembali bila pembayaran tidak dilakukan.
 	SoldByTicketOn(ctx context.Context, date string) (map[string]int64, error)
 	// Agregasi untuk analytics/laporan.
 	SumRevenueBetween(ctx context.Context, from, to string) (int64, error)
@@ -136,7 +136,7 @@ func (r *repository) SoldByTicketOn(ctx context.Context, date string) (map[strin
 		Table("booking_items").
 		Select("booking_items.ticket_id as ticket_id, SUM(booking_items.quantity) as quantity").
 		Joins("JOIN bookings ON bookings.id = booking_items.booking_id").
-		Where("bookings.visit_date = ? AND bookings.status IN ?", date, RevenueStatuses).
+		Where("bookings.visit_date = ? AND bookings.status IN ?", date, QuotaStatuses).
 		Group("booking_items.ticket_id").
 		Scan(&rows).Error
 	if err != nil {

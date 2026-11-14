@@ -23,8 +23,8 @@ import (
 	"github.com/KawahPutih/backend/internal/domain/tickettype"
 	"github.com/KawahPutih/backend/internal/domain/user"
 	"github.com/KawahPutih/backend/internal/domain/verification"
-	"github.com/KawahPutih/backend/internal/domain/visitors"
 	"github.com/KawahPutih/backend/internal/domain/visitorrule"
+	"github.com/KawahPutih/backend/internal/domain/visitors"
 	"github.com/KawahPutih/backend/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -41,6 +41,9 @@ func NewRouter(app *bootstrap.App, log *zap.Logger) *gin.Engine {
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
+	// Berkas unggahan galeri (dibuat oleh admin) disajikan dari disk.
+	r.Static("/uploads", app.UploadDir)
+
 	v1 := r.Group("/api/v1")
 
 	auth.RegisterRoutes(v1, app.AuthHandler, app.JWTManager)
@@ -51,7 +54,7 @@ func NewRouter(app *bootstrap.App, log *zap.Logger) *gin.Engine {
 	ttourismpackage.RegisterRoutes(v1, app.PackageHandler, app.JWTManager)
 	booking.RegisterRoutes(v1, app.BookingHandler, app.JWTManager)
 	tickettype.RegisterRoutes(v1, app.TicketHandler, app.JWTManager)
-	payments.RegisterRoutes(v1, app.PaymentHandler, app.JWTManager)
+	payments.RegisterRoutes(v1, app.PaymentHandler, app.PaymentDestinationHandler, app.PaymentSettingsHandler, app.UploadDir, app.JWTManager)
 	ticketing.RegisterRoutes(v1, app.TicketingHandler, app.JWTManager)
 	analytics.RegisterRoutes(v1, app.AnalyticsHandler, app.JWTManager)
 	visitors.RegisterRoutes(v1, app.VisitorsHandler, app.JWTManager)

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Middleware edge-level: hanya cek KEHADIRAN cookie sesi mock (bukan validasi
-// role — role dicek di client oleh useRouteGuard, karena sesi mock tersimpan
-// di localStorage). Ini UX optimization: redirect cepat sebelum halaman
-// protected sempat ter-render, bukan security boundary.
+// Middleware edge-level: hanya cek KEHADIRAN cookie penanda sesi (bukan
+// validasi role — role dicek di client oleh useRouteGuard; sesi asli berupa
+// JWT dari backend tersimpan di localStorage). Ini UX optimization: redirect
+// cepat sebelum halaman protected sempat ter-render, bukan security boundary.
 const PROTECTED_PREFIXES = ["/dashboard", "/admin", "/manager", "/petugas"];
 
 export function middleware(request: NextRequest) {

@@ -5,7 +5,7 @@ import { formatCurrency } from "@/lib/currency";
 import type { TourismPackage } from "@/types/destination";
 import { Clock } from "lucide-react";
 
-// Ditautkan lewat `id`, bukan `slug`: domain package backend hanya mengekspos FindByID, bukan FindBySlug. `slug` masih dikembalikan API tapi belum bisa dipakai untuk routing.
+// Ditautkan lewat `id`, bukan `slug`: domain package backend hanya mengekspos FindByID, bukan FindBySlug. `slug` masih dikembalikan API tapi tidak dipakai untuk routing.
 export function PackageCard({ pkg }: { pkg: TourismPackage }) {
   return (
     <Link href={`/packages/${pkg.id}`}>

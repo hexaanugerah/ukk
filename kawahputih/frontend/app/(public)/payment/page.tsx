@@ -3,7 +3,7 @@ import { PaymentPanel } from "@/features/public/components/payment-panel";
 
 export const metadata: Metadata = {
   title: "Metode Pembayaran",
-  description: "Pilih metode pembayaran dan unggah bukti pembayaran tiket Kawah Putih.",
+  description: "Pilih metode pembayaran tiket Kawah Putih: QRIS, e-wallet, atau transfer bank.",
 };
 
 export default async function PaymentPage({

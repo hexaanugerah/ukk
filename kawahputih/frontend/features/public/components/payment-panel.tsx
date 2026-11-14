@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, Copy, CreditCard, Loader2, Store, Timer, Wallet, XCircle } from "lucide-react";
+import QRCode from "react-qr-code";
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  ImageUp,
+  Loader2,
+  Store,
+  Timer,
+  Wallet,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { bookingService, paymentService, BookingError } from "@/services/api";
 import { rupiah } from "@/lib/business";
@@ -14,43 +27,11 @@ import {
   type PaymentMethodCode,
   type PaymentMethodOption,
 } from "@/config/payment.config";
-import type { Booking, Payment } from "@/types/api";
+import type { Booking, Payment, PaymentDestination } from "@/types/api";
 
 type PaymentOutcome = "SUCCESS" | "FAILED" | "EXPIRED";
 
 type Phase = "LOADING" | "WAITING" | "PROCESSING" | "SUCCESS" | "FAILED" | "EXPIRED" | "NOT_FOUND";
-
-/** Prefix Virtual Account per bank — angka di belakangnya diturunkan dari kode booking. */
-const VA_PREFIX: Record<string, string> = {
-  BCA_VA: "8808",
-  BNI_VA: "8810",
-  MANDIRI_VA: "8888",
-  BRI_VA: "8889",
-};
-
-/** Angka deterministik dari sebuah seed (kode booking) — untuk nomor VA/kode bayar. */
-function deriveDigits(seed: string, len: number): string {
-  let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    h = Math.imul(h ^ seed.charCodeAt(i), 16777619) >>> 0;
-  }
-  let out = "";
-  let n = h || 1;
-  while (out.length < len) {
-    n = (Math.imul(n, 1103515245) + 12345) >>> 0;
-    out += String(n % 10);
-  }
-  return out.slice(0, len);
-}
-
-function virtualAccountNumber(method: string, bookingID: string): string {
-  const prefix = VA_PREFIX[method] ?? "8808";
-  return prefix + deriveDigits(`${method}:${bookingID}`, 12);
-}
-
-function retailPaymentCode(bookingID: string): string {
-  return "KP" + deriveDigits(`retail:${bookingID}`, 10);
-}
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -80,47 +61,74 @@ function Instruction({
   option,
   bookingID,
   total,
+  payment,
+  destination,
 }: {
   option: PaymentMethodOption;
   bookingID: string;
   total: number;
+  payment: Payment | null;
+  destination?: PaymentDestination;
 }) {
+  // QRIS — QR asli dari provider (qris_string Midtrans). Bila provider belum
+  // mengembalikan QR, tampilkan pesan dan sarankan metode lain (tanpa QR palsu).
   if (option.kind === "qris") {
-    return (
-      <div className="mt-3 text-center">
-        <div className="mx-auto grid h-44 w-44 place-items-center rounded-md border border-[#e5edf3] bg-[#f7fbff] p-2">
-          <div
-            className="h-full w-full opacity-90"
-            style={{
-              backgroundImage: "repeating-conic-gradient(#17324d 0% 25%, #ffffff 0% 50%)",
-              backgroundSize: "12px 12px",
-            }}
-            role="img"
-            aria-label="Kode QRIS pembayaran"
-          />
+    if (payment?.qris_string) {
+      return (
+        <div className="mt-3 text-center">
+          <div className="mx-auto grid h-52 w-52 place-items-center rounded-md border border-[#e5edf3] bg-white p-3">
+            <QRCode value={payment.qris_string} size={176} aria-label="Kode QRIS pembayaran" />
+          </div>
+          <p className="mt-2 text-xs text-[#698097]">Pindai kode ini dengan aplikasi pembayaran Anda.</p>
         </div>
-        <p className="mt-2 text-xs text-[#698097]">Pindai kode ini dengan aplikasi pembayaran Anda.</p>
-      </div>
-    );
-  }
-
-  if (option.kind === "va") {
-    const va = virtualAccountNumber(option.code, bookingID);
+      );
+    }
     return (
-      <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-[#698097]">Nomor Virtual Account</p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="font-mono text-lg font-bold tracking-wider text-[#17324d]">{va}</span>
-          <CopyButton value={va} label="Salin nomor virtual account" />
-        </div>
-        <p className="mt-2 text-xs text-[#698097]">
-          Masukkan nomor di atas pada menu <span className="font-semibold">Transfer → Virtual Account</span> di ATM,
-          mobile banking, atau internet banking. Nominal: <span className="font-semibold">{rupiah(total)}</span>.
+      <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4 text-center">
+        <p className="text-sm font-semibold text-[#b7791f]">Kode QRIS belum tersedia.</p>
+        <p className="mt-1 text-xs text-[#698097]">
+          Pembayaran QRIS belum dapat diproses saat ini. Silakan pilih metode pembayaran lain.
+        </p>
+        <p className="mt-2 text-xs text-[#94A3B8]">
+          Nomor referensi: <span className="font-mono">{payment?.reference ?? bookingID}</span>
         </p>
       </div>
     );
   }
 
+  // Transfer bank / Virtual Account — nomor tujuan diatur oleh admin.
+  if (option.kind === "va") {
+    return (
+      <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-[#698097]">Tujuan Transfer</p>
+        {destination ? (
+          <>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="font-mono text-lg font-bold tracking-wider text-[#17324d]">{destination.account_number}</span>
+              <CopyButton value={destination.account_number} label="Salin nomor rekening" />
+            </div>
+            <p className="mt-1 text-xs text-[#698097]">
+              a.n. <span className="font-semibold text-[#17324d]">{destination.account_name || destination.provider_name}</span>
+            </p>
+            <p className="mt-2 text-xs text-[#698097]">
+              Transfer tepat sebesar <span className="font-semibold">{rupiah(total)}</span>, lalu pembayaran akan
+              dikonfirmasi oleh petugas/admin.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-xs text-[#b7791f]">
+            Tujuan transfer untuk metode ini belum diatur oleh admin. Silakan pilih metode lain.
+          </p>
+        )}
+        <p className="mt-2 text-xs text-[#94A3B8]">
+          Nomor referensi: <span className="font-mono">{payment?.reference ?? bookingID}</span>
+        </p>
+      </div>
+    );
+  }
+
+  // E-Wallet — bila tersedia, lanjut ke halaman pembayaran Midtrans;
+  // nomor tujuan manual dari admin ditampilkan sebagai alternatif.
   if (option.kind === "ewallet") {
     return (
       <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4">
@@ -128,71 +136,104 @@ function Instruction({
           <Wallet className="h-4 w-4 text-[#1768ad]" />
           <p className="text-sm font-bold text-[#17324d]">Bayar dengan {option.label}</p>
         </div>
-        <p className="mt-2 text-xs text-[#698097]">
-          Buka aplikasi <span className="font-semibold">{option.label}</span>, pilih menu{" "}
-          <span className="font-semibold">Bayar / Scan</span>, lalu konfirmasi pembayaran sebesar{" "}
-          <span className="font-semibold">{rupiah(total)}</span>.
-        </p>
+        {payment?.midtrans_redirect_url && (
+          <a
+            href={payment.midtrans_redirect_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex h-9 items-center rounded-md bg-[#1768ad] px-4 text-xs font-semibold text-white hover:bg-[#14548f]"
+          >
+            Lanjut ke Halaman Pembayaran
+          </a>
+        )}
+        {destination ? (
+          <div className="mt-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-[#698097]">
+              Atau transfer ke {destination.provider_name}
+            </p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <span className="font-mono text-base font-bold tracking-wider text-[#17324d]">{destination.account_number}</span>
+              <CopyButton value={destination.account_number} label="Salin nomor tujuan" />
+            </div>
+            <p className="mt-1 text-xs text-[#698097]">
+              a.n. <span className="font-semibold text-[#17324d]">{destination.account_name || destination.provider_name}</span> • nominal {rupiah(total)}
+            </p>
+          </div>
+        ) : (
+          !payment?.midtrans_redirect_url && (
+            <p className="mt-2 text-xs text-[#b7791f]">
+              Tujuan pembayaran {option.label} belum diatur oleh admin. Silakan pilih metode lain.
+            </p>
+          )
+        )}
         <p className="mt-2 text-xs text-[#94A3B8]">
-          Nomor referensi: <span className="font-mono">{bookingID}</span>
+          Nomor referensi: <span className="font-mono">{payment?.reference ?? bookingID}</span>
         </p>
       </div>
     );
   }
 
+  // Gerai retail — kode/aturan pembayaran ditentukan admin.
   if (option.kind === "retail") {
-    const code = retailPaymentCode(bookingID);
     return (
       <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4">
         <div className="flex items-center gap-2">
           <Store className="h-4 w-4 text-[#1768ad]" />
           <p className="text-sm font-bold text-[#17324d]">Bayar tunai di {option.label}</p>
         </div>
-        <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[#698097]">Kode pembayaran</p>
-        <div className="mt-1 flex items-center justify-between gap-3">
-          <span className="font-mono text-lg font-bold tracking-wider text-[#17324d]">{code}</span>
-          <CopyButton value={code} label="Salin kode pembayaran" />
-        </div>
-        <p className="mt-2 text-xs text-[#698097]">
-          Tunjukkan kode ini ke kasir {option.label} dan bayar sebesar{" "}
-          <span className="font-semibold">{rupiah(total)}</span>. Simpan struk sebagai bukti.
+        {destination ? (
+          <>
+            <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[#698097]">Nomor tujuan</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <span className="font-mono text-lg font-bold tracking-wider text-[#17324d]">{destination.account_number}</span>
+              <CopyButton value={destination.account_number} label="Salin nomor tujuan" />
+            </div>
+            <p className="mt-1 text-xs text-[#698097]">
+              a.n. <span className="font-semibold text-[#17324d]">{destination.account_name || destination.provider_name}</span>
+            </p>
+            <p className="mt-2 text-xs text-[#698097]">
+              Sebutkan referensi berikut ke kasir {option.label} dan bayar sebesar{" "}
+              <span className="font-semibold">{rupiah(total)}</span>.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-xs text-[#b7791f]">
+            Pembayaran {option.label} belum diaktifkan oleh admin. Silakan pilih metode lain.
+          </p>
+        )}
+        <p className="mt-2 text-xs text-[#94A3B8]">
+          Nomor referensi: <span className="font-mono">{payment?.reference ?? bookingID}</span>
         </p>
       </div>
     );
   }
 
-  // Kartu kredit / debit
+  // Kartu kredit / debit — hanya tersedia melalui halaman Midtrans.
   return (
     <div className="mt-3 rounded-md border border-[#d7e3ed] bg-[#f7fbff] p-4">
       <div className="flex items-center gap-2">
         <CreditCard className="h-4 w-4 text-[#1768ad]" />
-        <p className="text-sm font-bold text-[#17324d]">Detail Kartu</p>
+        <p className="text-sm font-bold text-[#17324d]">Kartu Kredit / Debit</p>
       </div>
-      <div className="mt-3 space-y-2">
-        <input
-          disabled
-          placeholder="1234 5678 9012 3456"
-          className="h-10 w-full rounded-md border border-[#d7e3ed] bg-white px-3 font-mono text-sm text-[#17324d] disabled:opacity-70"
-          aria-label="Nomor kartu"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            disabled
-            placeholder="MM/YY"
-            className="h-10 w-full rounded-md border border-[#d7e3ed] bg-white px-3 font-mono text-sm text-[#17324d] disabled:opacity-70"
-            aria-label="Masa berlaku kartu"
-          />
-          <input
-            disabled
-            placeholder="CVV"
-            className="h-10 w-full rounded-md border border-[#d7e3ed] bg-white px-3 font-mono text-sm text-[#17324d] disabled:opacity-70"
-            aria-label="CVV kartu"
-          />
-        </div>
-      </div>
-      <p className="mt-2 text-xs text-[#94A3B8]">
-        Simulasi — data kartu tidak dikirim ke mana pun.
-      </p>
+      {payment?.midtrans_redirect_url ? (
+        <>
+          <p className="mt-2 text-xs text-[#698097]">
+            Pembayaran kartu diproses melalui halaman pembayaran Midtrans yang aman.
+          </p>
+          <a
+            href={payment.midtrans_redirect_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex h-9 items-center rounded-md bg-[#1768ad] px-4 text-xs font-semibold text-white hover:bg-[#14548f]"
+          >
+            Lanjut ke Halaman Pembayaran
+          </a>
+        </>
+      ) : (
+        <p className="mt-2 text-xs text-[#b7791f]">
+          Pembayaran kartu belum tersedia. Silakan pilih metode lain.
+        </p>
+      )}
     </div>
   );
 }
@@ -202,10 +243,16 @@ export function PaymentPanel({ code }: { code?: string }) {
   const [phase, setPhase] = useState<Phase>("LOADING");
   const [booking, setBooking] = useState<Booking | null>(null);
   const [payment, setPayment] = useState<Payment | null>(null);
+  const [destinations, setDestinations] = useState<PaymentDestination[]>([]);
   const [countdown, setCountdown] = useState<number>(0);
   const [method, setMethod] = useState<PaymentMethodCode>("QRIS");
+  const [proofUploading, setProofUploading] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
+  // null = tidak ada pembatasan (mis. endpoint belum tersedia).
+  const [activeMethods, setActiveMethods] = useState<string[] | null>(null);
+  const proofInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Muat booking + payment dari backend API.
+  // Muat booking + payment + daftar tujuan pembayaran dari backend API.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -214,11 +261,20 @@ export function PaymentPanel({ code }: { code?: string }) {
         return;
       }
       try {
-        const b = await bookingService.getById(code);
-        const p = await paymentService.getByBookingId(code);
+        const [b, p, dest, methods] = await Promise.all([
+          bookingService.getById(code),
+          paymentService.getByBookingId(code),
+          paymentService.listDestinations(),
+          paymentService.listActiveMethods(),
+        ]);
         if (!alive) return;
         setBooking(b);
         setPayment(p);
+        setDestinations(dest);
+        // Metode yang dinonaktifkan admin tidak ditampilkan ke pengunjung.
+        if (methods.length > 0) {
+          setActiveMethods(methods.map((m) => m.method_code));
+        }
         if (p?.method && findPaymentMethod(p.method)) {
           setMethod(p.method as PaymentMethodCode);
         }
@@ -251,9 +307,54 @@ export function PaymentPanel({ code }: { code?: string }) {
     return () => clearInterval(timer);
   }, [payment, phase]);
 
-  const selected = useMemo(() => findPaymentMethod(method), [method]);
+  // Polling status pembayaran: webhook Midtrans bisa menandai PAID kapan pun
+  // (QRIS/e-wallet), sehingga status diperbarui tanpa menekan tombol apa pun.
+  useEffect(() => {
+    if (phase !== "WAITING" || !code) return;
+    const interval = setInterval(async () => {
+      try {
+        const p = await paymentService.getByBookingId(code);
+        if (!p) return;
+        setPayment(p);
+        if (p.status === "PAID") {
+          const b = await bookingService.getById(code);
+          setBooking(b);
+          setPhase("SUCCESS");
+          toast.success("Pembayaran berhasil!", {
+            description: `E-tiket untuk ${b?.booking_code ?? code} telah diterbitkan.`,
+          });
+        }
+      } catch {
+        // Biarkan polling berlanjut; kegagalan jaringan tidak mengubah fase.
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [phase, code]);
 
-  async function pay(outcome: PaymentOutcome) {
+  const selected = useMemo(() => findPaymentMethod(method), [method]);
+  const destination = useMemo(
+    () => destinations.find((d) => d.method_code === method),
+    [destinations, method]
+  );
+
+  // Grup metode yang masih aktif menurut pengaturan admin.
+  const methodGroups = useMemo(
+    () =>
+      PAYMENT_METHOD_GROUPS.map((group) => ({
+        ...group,
+        options: group.options.filter((o) => !activeMethods || activeMethods.includes(o.code)),
+      })).filter((group) => group.options.length > 0),
+    [activeMethods]
+  );
+
+  // Bila metode terpilih ternyata dinonaktifkan, pindah ke metode aktif pertama.
+  useEffect(() => {
+    if (!activeMethods || activeMethods.includes(method)) return;
+    const first = methodGroups[0]?.options[0];
+    if (first) setMethod(first.code);
+  }, [activeMethods, method, methodGroups]);
+
+  async function pay(outcome?: PaymentOutcome) {
     if (!booking) return;
     setPhase("PROCESSING");
     try {
@@ -270,6 +371,12 @@ export function PaymentPanel({ code }: { code?: string }) {
         setPhase("FAILED");
         setPayment(res.payment);
         toast.error("Pembayaran gagal", { description: "Pembayaran gagal. Silakan coba kembali." });
+      } else if (res.outcome === "PENDING") {
+        setPhase("WAITING");
+        setPayment(res.payment);
+        toast.info("Pembayaran masih diproses", {
+          description: "Status pembayaran belum dikonfirmasi penyedia. Kami akan terus memeriksa.",
+        });
       } else {
         setPhase("EXPIRED");
         toast.warning("Pembayaran kadaluarsa", { description: "Waktu pembayaran telah berakhir." });
@@ -279,6 +386,45 @@ export function PaymentPanel({ code }: { code?: string }) {
       toast.error("Pembayaran gagal", { description: message });
       setPhase("WAITING");
     }
+  }
+
+  async function uploadProof(file: File) {
+    if (!booking) return;
+    setProofError(null);
+    if (file.size > 5 * 1024 * 1024) {
+      setProofError("Ukuran berkas maksimal 5 MB.");
+      return;
+    }
+    setProofUploading(true);
+    try {
+      const updated = await paymentService.uploadProof(booking.id, file);
+      setPayment(updated);
+      toast.success("Bukti pembayaran terunggah", {
+        description: "Pembayaran akan diverifikasi oleh admin.",
+      });
+    } catch (err: any) {
+      const message = err?.message || "Gagal mengunggah bukti pembayaran.";
+      setProofError(message);
+      toast.error("Gagal mengunggah", { description: message });
+    } finally {
+      setProofUploading(false);
+    }
+  }
+
+  // Langkah berikutnya hanya terbuka setelah bukti bayar terunggah.
+  function goNext() {
+    if (!booking) return;
+    if (!payment?.proof_url) {
+      toast.error("Unggah bukti pembayaran terlebih dahulu", {
+        description: "Bukti bayar wajib diunggah sebelum melanjutkan.",
+      });
+      return;
+    }
+    if (payment.status === "PAID") {
+      router.push(`/e-ticket?code=${booking.id}&new=1`);
+      return;
+    }
+    router.push("/dashboard/booking");
   }
 
   const mm = String(Math.floor(countdown / 60)).padStart(2, "0");
@@ -333,7 +479,7 @@ export function PaymentPanel({ code }: { code?: string }) {
 
           {phase === "WAITING" && (
             <div className="mt-4 space-y-4">
-              {PAYMENT_METHOD_GROUPS.map((group) => (
+              {methodGroups.map((group) => (
                 <div key={group.key}>
                   <p className="text-[11px] font-bold uppercase tracking-wide text-[#698097]">{group.label}</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -368,6 +514,11 @@ export function PaymentPanel({ code }: { code?: string }) {
                   </div>
                 </div>
               ))}
+              {methodGroups.length === 0 && (
+                <p className="rounded-md bg-[#fdf3e3] px-3 py-2 text-xs text-[#8a6420]">
+                  Belum ada metode pembayaran aktif. Silakan hubungi admin.
+                </p>
+              )}
             </div>
           )}
         </section>
@@ -380,32 +531,101 @@ export function PaymentPanel({ code }: { code?: string }) {
 
           {phase === "WAITING" && selected && (
             <>
-              <Instruction option={selected} bookingID={booking.id} total={booking.total} />
+              <Instruction
+                option={selected}
+                bookingID={booking.id}
+                total={booking.total}
+                payment={payment}
+                destination={destination}
+              />
 
               <p className="mt-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-[#b7791f]">
                 <Timer className="h-4 w-4" /> Bayar dalam {mm}:{ss}
               </p>
 
-              <div className="mt-4 rounded-md border border-dashed border-[#bcd8ee] bg-[#f7fbff] p-3">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#698097]">Simulasi hasil pembayaran</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => pay("SUCCESS")}
-                    className="rounded-md bg-[#16876a] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-95"
-                  >
-                    Saya Sudah Bayar
-                  </button>
-                  <button
-                    onClick={() => pay("FAILED")}
-                    className="rounded-md bg-[#c53030] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-95"
-                  >
-                    Simulasi Gagal
-                  </button>
+              {/* Tombol bayar — membuat / memeriksa transaksi ke payment gateway. */}
+              <button
+                type="button"
+                onClick={() => pay()}
+                className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#1768ad] text-sm font-semibold text-white hover:bg-[#14548f]"
+              >
+                <Wallet className="h-4 w-4" /> Bayar Sekarang
+              </button>
+
+              {/* Unggah bukti bayar — wajib sebelum lanjut ke halaman berikutnya. */}
+              <div className="mt-4 rounded-md border border-dashed border-[#c9deee] bg-[#f7fbff] p-4">
+                <div className="flex items-center gap-2">
+                  <ImageUp className="h-4 w-4 text-[#1768ad]" />
+                  <p className="text-sm font-bold text-[#17324d]">Unggah Bukti Pembayaran</p>
                 </div>
-                <p className="mt-1.5 text-[11px] text-[#94A3B8]">
-                  Tombol testing — pada produksi ini digantikan status webhook gateway.
+                <p className="mt-1 text-xs text-[#698097]">
+                  Format JPG, PNG, WEBP, atau PDF (maks. 5 MB).
                 </p>
+                <input
+                  ref={proofInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadProof(file);
+                    e.target.value = "";
+                  }}
+                />
+
+                {payment?.proof_url ? (
+                  <div className="mt-3 rounded-md border border-[#16876a] bg-[#f0fbf7] px-3 py-2">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-[#16876a]">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Bukti pembayaran sudah diunggah
+                    </p>
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_ORIGIN ?? "http://localhost:8080"}${payment.proof_url}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-[11px] font-semibold text-[#1768ad] hover:underline"
+                    >
+                      Lihat bukti
+                    </a>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs font-semibold text-[#b7791f]">
+                    Belum ada bukti pembayaran diunggah.
+                  </p>
+                )}
+
+                {proofError && <p className="mt-2 text-xs text-[#c53030]">{proofError}</p>}
+
+                <button
+                  type="button"
+                  disabled={proofUploading}
+                  onClick={() => proofInputRef.current?.click()}
+                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md border border-[#1768ad] px-3 text-xs font-semibold text-[#1768ad] hover:bg-[#eef7fd] disabled:opacity-60"
+                >
+                  {proofUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageUp className="h-3.5 w-3.5" />}
+                  {proofUploading ? "Mengunggah..." : payment?.proof_url ? "Ganti Bukti" : "Pilih Berkas"}
+                </button>
               </div>
+
+              {/* Tombol lanjut — terkunci bila bukti bayar belum ada. */}
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={!payment?.proof_url}
+                aria-disabled={!payment?.proof_url}
+                title={!payment?.proof_url ? "Unggah bukti pembayaran terlebih dahulu" : undefined}
+                className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-[#1768ad] bg-white text-sm font-semibold text-[#1768ad] hover:bg-[#eef7fd] disabled:cursor-not-allowed disabled:border-[#d7e3ed] disabled:text-[#94A3B8]"
+              >
+                Lanjut ke Halaman Berikutnya <ArrowRight className="h-4 w-4" />
+              </button>
+              {!payment?.proof_url && (
+                <p className="mt-1.5 text-center text-[11px] text-[#94A3B8]">
+                  Unggah bukti pembayaran untuk melanjutkan.
+                </p>
+              )}
+
+              <p className="mt-4 text-center text-xs text-[#698097]">
+                Status pembayaran diperiksa otomatis setiap beberapa detik.
+              </p>
             </>
           )}
 
@@ -423,10 +643,10 @@ export function PaymentPanel({ code }: { code?: string }) {
             <div className="mt-4 rounded-md bg-[#fdeaea] p-4 text-center">
               <p className="text-sm font-semibold text-[#c53030]">Pembayaran gagal diproses.</p>
               <button
-                onClick={() => pay("SUCCESS")}
+                onClick={() => pay()}
                 className="mt-2 rounded-md bg-[#1768ad] px-4 py-2 text-sm font-semibold text-white hover:bg-[#14548f]"
               >
-                Coba Bayar Lagi
+                Cek Ulang Status
               </button>
             </div>
           )}

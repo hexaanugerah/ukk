@@ -29,9 +29,9 @@ export default function AdminSettingsPage() {
             <Row label="Kapasitas pengunjung / hari" value={`${APP_CONFIG.dailyVisitorCapacity} orang`} />
             <Row label="Maks. hari ke depan" value={`${BOOKING_CONFIG.maxDaysAhead} hari`} />
             <Row label="Maks. tiket per jenis" value={`${BOOKING_CONFIG.maxQuantityPerTicket} tiket`} />
-            <Row label="Biaya layanan" value={rupiah(BOOKING_CONFIG.serviceFee)} />
+            <Row label="Biaya layanan" value={`${BOOKING_CONFIG.serviceFeePercent}% dari subtotal`} />
             <Row label="Kadaluarsa pembayaran" value={`${BOOKING_CONFIG.paymentExpiryMinutes} menit`} />
-            <Row label="Metode pembayaran" value="QRIS (simulasi)" />
+            <Row label="Metode pembayaran" value="QRIS, transfer VA, e-wallet & retail" />
           </dl>
           <p className="mt-3 text-[11px] text-[#94A3B8]">
             Ubah nilai konfigurasi langsung di file <code className="rounded bg-[#f7fbff] px-1">config/app.config.ts</code>.

@@ -83,8 +83,20 @@ func (u *Usecase) GetByID(ctx context.Context, id, userID string, privileged boo
 	return u.service.GetByID(ctx, id, userID, privileged)
 }
 
-func (u *Usecase) HandleMidtransWebhook(ctx context.Context, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount string) error {
-	return u.service.HandleMidtransNotification(ctx, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount)
+func (u *Usecase) HandleMidtransWebhook(ctx context.Context, notificationID, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount string) error {
+	return u.service.HandleMidtransNotification(ctx, notificationID, orderID, transactionStatus, statusCode, fraudStatus, signatureKey, grossAmount)
+}
+
+func (u *Usecase) ListFiltered(ctx context.Context, page, limit int, filter ListFilter) ([]PaymentDTO, int64, error) {
+	return u.service.ListFiltered(ctx, page, limit, filter)
+}
+
+func (u *Usecase) AttachProof(ctx context.Context, bookingID, userID string, privileged bool, proofURL string) (*PaymentDTO, error) {
+	return u.service.AttachProof(ctx, bookingID, userID, privileged, proofURL)
+}
+
+func (u *Usecase) ManagerReport(ctx context.Context, from, to string) (*ManagerPaymentReport, error) {
+	return u.service.ManagerReport(ctx, from, to)
 }
 
 func (u *Usecase) SetEWalletNumber(ctx context.Context, paymentID, ewalletNumber string) (*PaymentDTO, error) {

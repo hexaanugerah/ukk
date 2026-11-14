@@ -10,16 +10,16 @@ func NewUsecase(service *Service) *Usecase {
 	return &Usecase{service: service}
 }
 
-func (u *Usecase) Create(ctx context.Context, uploaderID string, req CreateRequest) (Response, error) {
-	item, err := u.service.Create(ctx, uploaderID, req)
+func (u *Usecase) Create(ctx context.Context, uploaderID string, req CreateRequest, image *ImageUpload) (Response, error) {
+	item, err := u.service.Create(ctx, uploaderID, req, image)
 	if err != nil {
 		return Response{}, err
 	}
 	return toResponse(item), nil
 }
 
-func (u *Usecase) Update(ctx context.Context, id, actorID string, req UpdateRequest) (Response, error) {
-	item, err := u.service.Update(ctx, id, actorID, req)
+func (u *Usecase) Update(ctx context.Context, id, actorID string, req UpdateRequest, image *ImageUpload) (Response, error) {
+	item, err := u.service.Update(ctx, id, actorID, req, image)
 	if err != nil {
 		return Response{}, err
 	}

@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   description: "Mengenal lebih dekat pesona alam dan cerita di balik Kawah Putih.",
 };
 
+// Konten destination info dikelola admin — render saat request.
+export const dynamic = "force-dynamic";
+
 const SECTION_ICONS = [Building2, Info, ShieldCheck];
 
 export default async function AboutPage() {

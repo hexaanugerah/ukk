@@ -4,6 +4,8 @@ export type BookingStatus = "PENDING" | "PAID" | "CONFIRMED" | "USED" | "CANCELL
 
 export type PaymentStatus = "PENDING" | "PROCESSING" | "PAID" | "FAILED" | "EXPIRED" | "REFUNDED";
 
+export type SettlementStatus = "UNSETTLED" | "SETTLED" | "REFUNDED";
+
 export type TicketStatus = "AKTIF" | "NONAKTIF";
 
 export type TicketCategory = "ENTRANCE" | "TRANSPORT" | "SUNRISE" | "PACKAGE" | "ACTIVITY" | "SERVICE";
@@ -166,17 +168,89 @@ export interface Payment {
   booking_id: string;
   /** Kode metode pembayaran, mis. "QRIS", "GOPAY", "BCA_VA". */
   method: string;
+  /** Referensi pembayaran unik (order ID Midtrans). */
+  reference?: string;
   amount: number;
   status: PaymentStatus;
   created_at: string;
-  paid_at?: string;
-  expired_at: string;
+  paid_at?: string;	expired_at: string;
+  /** Payload QR QRIS dari provider (hanya saat PENDING/PROCESSING). */
+  qris_string?: string;
+  /** URL halaman pembayaran Midtrans (hanya saat PENDING/PROCESSING). */
+  midtrans_redirect_url?: string;
+  provider?: string;
+  settlement_status?: SettlementStatus;
+  /** Bukti pembayaran yang diunggah pengunjung. */
+  proof_url?: string;
+  proof_uploaded_at?: string;
+}
+
+/** Konfigurasi kanal metode pembayaran yang diatur admin. */
+export interface PaymentMethodConfig {
+  id: string;
+  provider: string;
+  method_code: string;
+  method_name: string;
+  enabled: boolean;
+  display_order: number;
+}
+
+/** Status konfigurasi gateway — tanpa kredensial rahasia. */
+export interface PaymentSettings {
+  provider: string;
+  environment: string;
+  enabled: boolean;
+  connected: boolean;
+  configured: boolean;
+  merchant_name: string;
+  settlement_bank: string;
+  settlement_account_masked: string;
+  settlement_status: string;
+  webhook_url: string;
+  last_synced_at?: string;
+}
+
+/** Ringkasan pembayaran untuk manager (pendapatan & settlement terpisah). */
+export interface ManagerPaymentReport {
+  range_label: string;
+  from: string;
+  to: string;
+  total_revenue: number;
+  total_successful: number;
+  total_pending: number;
+  total_failed: number;
+  total_expired: number;
+  total_settled: number;
+  total_unsettled: number;
+  by_method: { method: string; count: number; total: number }[];
+  status_counts: Record<string, number>;
+}
+
+/** Tujuan pembayaran manual yang dikelola admin (rekening/e-wallet/retail). */
+export interface PaymentDestination {
+  id: string;
+  method_code: string;
+  provider_name: string;
+  account_number: string;
+  account_name: string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface PaymentDestinationPayload {
+  method_code: string;
+  provider_name: string;
+  account_number: string;
+  account_name?: string;
+  active: boolean;
+  sort_order?: number;
 }
 
 export interface ProcessPaymentRequest {
   booking_id: string;
   /** Metode yang dipilih pengunjung; kosong = pertahankan metode yang ada. */
   method?: string;
+  /** Jangan diisi dari UI — status hanya boleh ditentukan provider/webhook. */
   forced?: "SUCCESS" | "FAILED" | "EXPIRED";
 }
 
@@ -185,7 +259,7 @@ export interface ProcessPaymentResponse {
   message?: string;
   booking: Booking;
   payment: Payment;
-  outcome: "SUCCESS" | "FAILED" | "EXPIRED";
+  outcome: "SUCCESS" | "FAILED" | "EXPIRED" | "PENDING";
 }
 
 export interface PaymentsListResponse extends ApiResponse<Payment[]> {}
@@ -258,9 +332,8 @@ export interface ValidateTicketRequest {
 }
 
 export interface ValidateTicketResponse {
-  success: boolean;
-  message?: string;
   status: ScanStatus;
+  message?: string;
   ticket?: ETicket;
 }
 

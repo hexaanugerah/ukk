@@ -1,13 +1,30 @@
 package visitors
 
 import (
+	"errors"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/KawahPutih/backend/internal/middleware"
 	"github.com/KawahPutih/backend/pkg/apperror"
 	"github.com/KawahPutih/backend/pkg/jwtutil"
 	"github.com/KawahPutih/backend/pkg/response"
 	"github.com/gin-gonic/gin"
+)
+
+// Nama role kanonik yang boleh dipilih saat membuat akun staf. Didefinisikan
+// lokal agar domain visitors tidak mengimpor domain lain.
+const (
+	staffRoleAdmin   = "ADMIN"
+	staffRoleManager = "MANAGER"
+	staffRolePetugas = "PETUGAS"
+)
+
+// Pola validasi untuk akun staf baru.
+var (
+	emailPattern = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+	phonePattern = regexp.MustCompile(`^08\d{8,11}$`)
 )
 
 type Service struct {
@@ -107,6 +124,94 @@ func (h *Handler) SetStaffStatus(c *gin.Context) {
 	response.OK(c, "staff status updated", nil)
 }
 
+type createStaffRequest struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Phone    string `json:"phone"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+	Gate     string `json:"gate"`
+	Shift    string `json:"shift"`
+}
+
+// CreateStaff membuat akun staf baru (ADMIN/MANAGER/PETUGAS) dari panel admin.
+func (h *Handler) CreateStaff(c *gin.Context) {
+	var req createStaffRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request body", nil)
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	req.Phone = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(req.Phone, " ", ""), "-", ""))
+	req.Role = strings.TrimSpace(strings.ToUpper(req.Role))
+
+	var errs []response.FieldError
+	if len(req.Name) < 3 {
+		errs = append(errs, response.FieldError{Field: "name", Message: "Nama minimal 3 karakter"})
+	}
+	if !emailPattern.MatchString(req.Email) {
+		errs = append(errs, response.FieldError{Field: "email", Message: "Email tidak valid"})
+	}
+	if !phonePattern.MatchString(req.Phone) {
+		errs = append(errs, response.FieldError{Field: "phone", Message: "Nomor HP tidak valid (format 08xxxxxxxxxx)"})
+	}
+	errs = append(errs, validatePasswordStrength(req.Password)...)
+	switch req.Role {
+	case staffRoleAdmin, staffRoleManager, staffRolePetugas:
+	default:
+		errs = append(errs, response.FieldError{Field: "role", Message: "Role harus ADMIN, MANAGER, atau PETUGAS"})
+	}
+	if len(errs) > 0 {
+		response.ValidationFailed(c, errs)
+		return
+	}
+
+	err := h.service.repo.CreateStaff(c.Request.Context(), CreateStaffInput{
+		Name: req.Name, Email: req.Email, Phone: req.Phone, Password: req.Password,
+		Role: req.Role, Gate: strings.TrimSpace(req.Gate), Shift: strings.TrimSpace(req.Shift),
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrEmailExists):
+		response.Conflict(c, "Email sudah terdaftar. Gunakan email lain.")
+		return
+	case errors.Is(err, ErrRoleNotFound):
+		response.ValidationFailed(c, []response.FieldError{{Field: "role", Message: "Role tidak ditemukan"}})
+		return
+	default:
+		apperror.WriteHTTP(c, apperror.Internal(err))
+		return
+	}
+
+	response.Created(c, "Petugas baru berhasil ditambahkan", nil)
+}
+
+// validatePasswordStrength menegakkan kebijakan password yang sama dengan domain
+// auth (8-72 byte, minimal huruf besar, huruf kecil, dan angka). Didefinisikan
+// lokal agar domain visitors tidak mengimpor domain auth.
+func validatePasswordStrength(password string) []response.FieldError {
+	if len(password) < 8 || len([]byte(password)) > 72 {
+		return []response.FieldError{{Field: "password", Message: "Password minimal 8 dan maksimal 72 karakter"}}
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return []response.FieldError{{Field: "password", Message: "Password harus mengandung huruf besar, huruf kecil, dan angka"}}
+	}
+	return nil
+}
+
 func pageParams(c *gin.Context) (int, int) {
 	page, _ := strconv.Atoi(c.Query("page"))
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -132,5 +237,6 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, jwtManager *jwtutil.Manager
 	read.GET("/staff/:id", h.GetStaff)
 
 	admin := rg.Group("/admin", requireAuth, middleware.RequireRole("ADMIN", "super_admin"))
+	admin.POST("/staff", h.CreateStaff)
 	admin.PATCH("/staff/:id/status", h.SetStaffStatus)
 }

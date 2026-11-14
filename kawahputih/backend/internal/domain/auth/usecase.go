@@ -1,6 +1,10 @@
 package auth
 
-import "context"
+import (
+	"context"
+
+	"go.uber.org/zap"
+)
 
 // RoleProvider adalah cara usecase auth menjangkau domain role tanpa mengimpornya langsung: auth mendefinisikan interface yang dibutuhkan, service role memenuhinya secara struktural, dan bootstrap memasang instance konkretnya.
 type RoleProvider interface {
@@ -25,6 +29,12 @@ func (u *Usecase) Register(ctx context.Context, req RegisterRequest) (*AuthRespo
 	}
 	if err := u.roles.AssignDefaultRole(ctx, user.ID); err != nil {
 		return nil, err
+	}
+	// AUTH-07: registrasi otomatis mengirim email verifikasi. Kegagalan kirim
+	// email tidak boleh menggagalkan registrasi — pengguna masih bisa meminta
+	// ulang lewat POST /auth/email/verify/request.
+	if err := u.service.RequestEmailVerification(ctx, user.Email); err != nil {
+		u.service.log.Warn("send verification email after register failed", zap.String("email", user.Email), zap.Error(err))
 	}
 	roleNames, err := u.roles.GetRoleNames(ctx, user.ID)
 	if err != nil {

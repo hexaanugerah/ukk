@@ -108,6 +108,65 @@ func (g *Gateway) CreateTransaction(ctx context.Context, orderID string, grossAm
 	return res.RedirectURL, nil
 }
 
+// Configured melaporkan apakah server key Midtrans sudah tersedia.
+func (g *Gateway) Configured() bool {
+	return strings.TrimSpace(g.cfg.ServerKey) != ""
+}
+
+// CreateQRIS membuat transaksi QRIS melalui Midtrans Core API dan
+// mengembalikan qr_string (payload QR yang bisa di-render sebagai gambar QR).
+func (g *Gateway) CreateQRIS(ctx context.Context, orderID string, grossAmount int64) (string, error) {
+	if !g.Configured() {
+		return "", fmt.Errorf("midtrans server key is not configured")
+	}
+	payload := struct {
+		TransactionDetails struct {
+			OrderID     string `json:"order_id"`
+			GrossAmount int64  `json:"gross_amount"`
+		} `json:"transaction_details"`
+		PaymentType string `json:"payment_type"`
+		QRIS        struct {
+			Acquirer string `json:"acquirer"`
+		} `json:"qris"`
+	}{}
+	payload.TransactionDetails.OrderID = orderID
+	payload.TransactionDetails.GrossAmount = grossAmount
+	payload.PaymentType = "qris"
+	payload.QRIS.Acquirer = "gopay"
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("midtrans marshal: %w", err)
+	}
+	requestURL := strings.TrimRight(g.cfg.BaseURL, "/") + "/charge"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("midtrans request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.SetBasicAuth(g.cfg.ServerKey, "")
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("midtrans do: %w", err)
+	}
+	defer resp.Body.Close()
+	var res struct {
+		QRString      string   `json:"qr_string"`
+		ErrorMessages []string `json:"error_messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("midtrans decode: %w", err)
+	}
+	if resp.StatusCode >= 300 || len(res.ErrorMessages) > 0 {
+		return "", fmt.Errorf("midtrans QRIS charge failed (%d): %v", resp.StatusCode, res.ErrorMessages)
+	}
+	if res.QRString == "" {
+		return "", fmt.Errorf("midtrans QRIS charge response is missing qr_string")
+	}
+	return res.QRString, nil
+}
+
 func (g *Gateway) VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool {
 	if g.cfg.ServerKey == "" {
 		return false

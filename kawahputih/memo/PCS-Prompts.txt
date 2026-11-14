@@ -1,0 +1,115 @@
+Buat dua hal berikut. Output dalam bahasa Indonesia yang jelas dan bisa langsung dipakai juri/developer.
+
+---
+
+# 1. PROMPT PENEKATAN KEAMANAN PROJEK (.env DAN RAHASIA)
+
+Gunakan prompt ini bila targetnya: memperkecil kemungkinan kebocoran rahasia, menyakinkan backend gagal dengan aman kalau rahasia hilang di lingkungan bukan lokal, dan menetapkan cara kerja .env / webhook / key yang konsisten.
+
+**Yang harus ada di file `.env` dan `.env.example`**
+
+- `.env` hanya untuk nilai sunggih, jangan pernah commit ke repo.
+- `.env.example` hanya berisi nama variabel dan value kosong atau placeholder yang jelas, tidak berisi secret sunggih.
+- Semua rahasia wajib usai di sini:
+  - `JWT_ACCESS_SECRET`
+  - `JWT_REFRESH_SECRET`
+  - `MIDTRANS_SERVER_KEY`
+  - `MIDTRANS_CLIENT_KEY`
+  - `SMTP_PASSWORD`
+  - `DB_PASSWORD`
+  - `REDIS_PASSWORD`
+  - `GOOGLE_CLIENT_SECRET`
+- Jangan simpan rahasia di dalam kode dalam bentuk default “yang bisa jalan sendiri” di lingkungan produksi atau staging.
+
+**Aturan loader env di backend**
+
+- Bila `APP_ENV` bukan `local`, backend wajib gagal boot kalau salah satu rahasia berikut kosong:
+  - `JWT_ACCESS_SECRET`
+  - `JWT_REFRESH_SECRET`
+  - `MIDTRANS_SERVER_KEY`
+- Bila `APP_ENV` adalah `local`, boleh pakai secret sementara untuk pengembangan, tapi harus dicantumkan secara eksplisit di log atau dokumentasi bahwa itu hanya untuk lokal, dan wajib tidak dipakai di sistem lain.
+
+**Hak akses file**
+
+- `.env` tidak boleh bisa dibaca semua orang. Pasangkan hak akses sehingga hanya pemilik proses yang bisa membacanya, misalnya `600` di Unix-like.
+- Jangan sekali-kali commit `.env` ke Git. Tambahkan ke `.gitignore` jika belum ada.
+- Kalau ada `frontend/.env.local`, rawat sama: jangan masuk ke repo dan jangan expose rahasia backend di sana.
+
+**Cara kirim rahasia ke server/doker**
+
+- Gunakan environment variable langsung dari secret manager, CI secret, atau orchestrator secret, bukan copy-paste `.env` ke server.
+- Kalau pakai docker compose untuk dev, pakai `env_file` lokal, tapi di produksi lepas dari compose dan pakai mekanisme secret host/container.
+- Jangan masukkan rahasia ke dalam image, argumen build, atau log build.
+
+**Manajemen rahasia di kode**
+
+- Api rahasia cukup satu: baca dari env, simpan di struktur config, lalu pakai config itu di seluruh aplikasi.
+- Jangan log isi rahasia, termasuk saat error. Log hanya ID atau jenis sumbernya, bukan nilainya.
+- Kalau ada webhook dari provider pembayaran, tanda-tangani penolakannya dengan rahasia yang sama. Bila signature tidak cocok, jawab error tanpa menulis rahasia ke log atau response.
+- Kalau ada multiple environment, satu file `.env` tidak boleh di-copy produksi secara manual.
+
+**Patch keamanan paling kecil dan paling berdampak yang bisa dikerjakan sekarang**
+
+- Pastikan backend gagal hardcode di lingkungan bukan lokal jika `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`/`MIDTRANS_SERVER_KEY` kosong.
+- Pastikan `.env.example` tidak berisi secret sunggih.
+- Pastikan tidak ada `.env` di tree repo yang sudah tracked.
+- Pastikan penolakan signature webhook dibikin tetap aman dan tidak bocor rahasia.
+
+**Sinyal bahwa keamanan sudah cukup untuk level projek ini**
+
+- Developer baru bisa jalanin backend di lokal dengan mengCopy `.env.example` ke `.env` dan mengisi rahasia.
+- Backend produksi tidak pernah jalan kalau rahasia wajib kosong.
+- Tidak ada secret yang tertulis di kode, di test fixture sunggih, atau di `README` sebagai contoh aktif.
+
+---
+
+# 2. PROMPT MEMBUAT TEST.GO JADI BISA DIGUNAKAN
+
+Catatan: Di projek ini tidak ada file bernama persis `test.go`. Yang ada adalah file tes berakhiran `*_test.go`, contohnya `backend/internal/domain/payments/service_test.go`. Jadi prompt ini ditujukan agar “test.go” yang dimaksud juri/plong developer berubah makna jadi “file test yang nyala dan berguna”, bukan file kosong/placeholder.
+
+**Yang harus terjadi**
+
+- Ada setidaknya satu file test yang benar-benar jalan (`go test ./...` atau setidaknya `go test` di package yang relevan) tanpa error setup.
+- Test itu harus menguji behavior utama, bukan cuma trip assertion kosong.
+- Kalau ada mock, mock itu harus menggantikan dependency eksternal yang tidak bisa dibuat di tes unit, seperti gateway pembayaran, pengiriman email, Redis, atau penyimpanan file.
+- Kalau test butuh database, jangan pakai database produksi. Gunakan SQLite in-memory atau DB dedicated untuk test.
+
+**Cara memperbaiki jika test tidak jalan**
+
+- Kalau ada fungsi/service yang meminta dependency yang belum ada mock, buat mock minimal yang cukup untuk test itu jalan.
+- Kalau ada import yang belum ada di modul test, tambahkan dependency tes yang dibutuhkan, bukan core runtime.
+- Kalau test mencoba akses env rahasia dan gagal di CI, mock bagian itu atau berikan env test yang tidak butuh rahasia sunggih.
+- Jangan membiarkan test yang hanya lulus karena ga pernah dijalankan.
+
+**Contoh file test yang worth keeping**
+
+- Test pembayaran: mulai pembayaran, proses pembayaran, gagal, kedaluwarsa, dan set status oleh admin.
+- Test galeri: admin buat item galeri pakai URL, admin ubah pakai file reference, dan list yang dibuat.
+- Kalau memungkinkan, test sebaiknya menulis api dalam bentuk bahasa user: “jika admin upload file, galeri pakai file; jika tidak, pakai URL”.
+
+**Cara membiasakan test jadi berguna**
+
+- Jalankan `go test` sebelum PR.
+- Jangan biarkan coverage turun drastis hanya karena fitur baru masuk tanpa test jalur utama.
+- Log kalau ada test yang selalu lulus tanpa assertion bermakna; itu pertanda test sebenarnya useless.
+
+---
+
+# 3. POSISI FILE YANG SERING DIRUIN DI PROJEK INI
+
+Ini bukan bagian dari prompt yang wajib dipakai, tapi bikin lebih gampang nunjuk ke lokasi yang udah dipakai:
+
+- Config/env backend: `backend/internal/config/config.go`
+- Contoh env backend: `backend/.env.example`
+- Env backend sunggih: `backend/.env`
+- Gateway pembayaran: `backend/internal/payment/midtrans/gateway.go`
+- Payment domain: `backend/internal/domain/payments/*`
+- Galeri domain: `backend/internal/domain/gallery/*`
+- Bootstrap aplikasi: `backend/internal/bootstrap/bootstrap.go` dan `backend/internal/bootstrap/adapters.go`
+- Seeding role/user: `backend/internal/seed/seed.go`
+- Test payments: `backend/internal/domain/payments/service_test.go`
+- Jalur routing: `backend/internal/routes/routes.go`
+
+---
+
+Kalau mau, prompt ini bisa dipakai langsung sebagai petunjuk developer jam kontribusi, atau dipecah jadi task Git/issue per bagian.

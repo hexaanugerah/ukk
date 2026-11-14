@@ -1,7 +1,12 @@
 package gallery
 
 import (
+	"bytes"
+	"io"
+	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/KawahPutih/backend/internal/middleware"
 	"github.com/KawahPutih/backend/pkg/apperror"
@@ -17,23 +22,63 @@ func NewHandler(usecase *Usecase) *Handler {
 	return &Handler{usecase: usecase}
 }
 
+// parseImageField membaca berkas gambar dari form multipart dan memvalidasi
+// isinya (sniff content type dari byte awal, bukan sekadar header — klien
+// tidak selalu mengirim Content-Type yang benar). required=false hanya boleh
+// dipakai pada pembaruan (gambar lama dipakai).
+func parseImageField(c *gin.Context, required bool) (*ImageUpload, bool) {
+	fh, err := c.FormFile("image")
+	if err != nil {
+		if required {
+			response.BadRequest(c, "File gambar wajib diunggah (field \"image\").", nil)
+			return nil, false
+		}
+		return nil, true
+	}
+	if fh.Size > MaxImageSize {
+		response.BadRequest(c, "Ukuran file gambar maksimal 5 MB.", nil)
+		return nil, false
+	}
+	ext := filepath.Ext(fh.Filename)
+	if ext == "" || !ValidateImageExt(ext) {
+		response.BadRequest(c, "Format gambar tidak didukung. Gunakan JPG, PNG, WEBP, atau GIF.", nil)
+		return nil, false
+	}
+	src, err := fh.Open()
+	if err != nil {
+		response.BadRequest(c, "Gagal membaca file gambar.", nil)
+		return nil, false
+	}
+
+	// Sniff tipe dari 512 byte pertama agar ekstensi palsu (mis. .png untuk
+	// berkas eksekusi) tetap tertolak.
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(src, head)
+	head = head[:n]
+	if ct := http.DetectContentType(head); !strings.HasPrefix(ct, "image/") {
+		src.Close()
+		response.BadRequest(c, "Berkas yang diunggah bukan gambar.", nil)
+		return nil, false
+	}
+	return &ImageUpload{Ext: strings.ToLower(ext), Reader: io.MultiReader(bytes.NewReader(head), src)}, true
+}
+
 func (h *Handler) Create(c *gin.Context) {
-	var req CreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "invalid request body", nil)
-		return
+	req := CreateRequest{
+		Title:     c.PostForm("title"),
+		Category:  c.PostForm("category"),
+		SortOrder: atoiOrZero(c.PostForm("sort_order")),
 	}
 	if errs := Validate(req); errs != nil {
 		response.ValidationFailed(c, errs)
 		return
 	}
-
-	if req.ImageFile != "" && !isValidImageFileRef(req.ImageFile) {
-		response.BadRequest(c, "image_file tidak valid", nil)
+	image, ok := parseImageField(c, true)
+	if !ok {
 		return
 	}
 
-	result, err := h.usecase.Create(c.Request.Context(), middleware.CurrentUserID(c), req)
+	result, err := h.usecase.Create(c.Request.Context(), middleware.CurrentUserID(c), req, image)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
 		return
@@ -42,21 +87,21 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) Update(c *gin.Context) {
-	var req UpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "invalid request body", nil)
-		return
+	req := UpdateRequest{
+		Title:     c.PostForm("title"),
+		Category:  c.PostForm("category"),
+		SortOrder: atoiOrZero(c.PostForm("sort_order")),
 	}
 	if errs := Validate(req); errs != nil {
 		response.ValidationFailed(c, errs)
 		return
 	}
-	if req.ImageFile != "" && !isValidImageFileRef(req.ImageFile) {
-		response.BadRequest(c, "image_file tidak valid", nil)
+	image, ok := parseImageField(c, false)
+	if !ok {
 		return
 	}
 
-	result, err := h.usecase.Update(c.Request.Context(), c.Param("id"), middleware.CurrentUserID(c), req)
+	result, err := h.usecase.Update(c.Request.Context(), c.Param("id"), middleware.CurrentUserID(c), req, image)
 	if err != nil {
 		apperror.WriteHTTP(c, err)
 		return
@@ -101,4 +146,9 @@ func (h *Handler) Search(c *gin.Context) {
 		return
 	}
 	response.OKWithMeta(c, "gallery items retrieved", result, response.BuildMeta(page, perPage, total))
+}
+
+func atoiOrZero(value string) int {
+	n, _ := strconv.Atoi(strings.TrimSpace(value))
+	return n
 }

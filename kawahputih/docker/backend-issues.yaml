@@ -14,7 +14,7 @@ issues:
       baris: "baris ~66 (setelah cek IsActive, sebelum return)"
     evidensi: TC06: login visitor belum verifikasi dikembalikan HTTP 200 dengan is_verified=False
     rekomendasi: Tambahkan pemeriksaan IsVerified di Authenticate (berikan pesan 'email belum diverifikasi') sebelum return success.
-    status: buka
+    status: diperbaiki (Authenticate kini menolak akun IsVerified=false dengan AUTH_004; frontend login menyediakan kirim-ulang verifikasi)
 
   # TC07 — register tidak otomatis mengirim email verifikasi
   - id: AUTH-07-register-tidak-kirim-email-verifikasi-otomatis
@@ -28,7 +28,7 @@ issues:
       baris: "baris ~43-65 (tanpa s.RequestEmailVerification(...))"
     evidensi: register visitor baru tidak menghasilkan email verifikasi; harus panggil /auth/email/verify/request manual.
     rekomendasi: Opsi A — kirim email verifikasi otomatis dari CreateUser. Opsi B — pastikan dokumentasi_flow & frontend memicu /auth/email/verify/request setelah register.
-    status: buka
+    status: diperbaiki (Usecase.Register memanggil RequestEmailVerification otomatis; gagal kirim email hanya dicatat, tidak menggagalkan registrasi)
 
   # TC12 — pesan tiket habis: pesan error tidak sesuai harapan
   - id: BOOK-12-pesan-habis-pesan-gap-cache
@@ -78,7 +78,7 @@ issues:
       file: internal/domain/role/routes.go dan handler
     evidensi: TC20: HTTP 403 karena ADMIN tidak bisa assigned role; seeder tidak create super_admin
     rekomendasi: Tambahkan akun super_admin di seeder (atau ganti desain otorisasi) supaya Pengujian TC20 dapat dilaksanakan.
-    status: buka
+    status: diperbaiki (seeder kini membuat role super_admin + akun superadmin@kawahputih.id via env SEED_SUPERADMIN_PASSWORD; frontend halaman admin/roles memakai /super-admin/*)
 
   # TC21 — backend tidak ada endpoint update gate/shift petugas
   - id: STAFF-21-tiada-update-gate
@@ -104,7 +104,7 @@ issues:
       baris: "baris ~42-55 (tanpa jti)"
     evidensi: CP24: login berkali-kali → refresh token identik; refresh#1 revoke namun refresh#2 masih HTTP 200 (token lama tetap valid).
     rekomendasi: Tambahkan jti unik saat Issue/GenerateRefreshToken dan cegah slug duplikat; cek duplikat hash di CreateRefreshToken ; kunci revoked_or_jti.
-    status: buka
+    status: diperbaiki (GenerateRefreshToken kini menyertakan ID unik uuid.NewString() di pkg/jwtutil/jwtutil.go)
 
   # TC27 — login Google belum tersedia (GOOGLE_CLIENT_ID kosong)
   - id: AUTH-27-google-yet-to-be-configured

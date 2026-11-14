@@ -13,6 +13,9 @@ interface RequestOptions extends RequestInit {
   timeout?: number;
 }
 
+const ACCESS_TOKEN_KEY = "auth_token";
+const REFRESH_TOKEN_KEY = "auth_refresh_token";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -32,7 +35,7 @@ class ApiClient {
     this.baseUrl = baseUrl;
     // Ambil token dari localStorage saat inisialisasi (hanya di sisi klien)
     if (typeof window !== "undefined") {
-      this.token = localStorage.getItem("auth_token");
+      this.token = localStorage.getItem(ACCESS_TOKEN_KEY);
     }
   }
 
@@ -40,15 +43,89 @@ class ApiClient {
     this.token = token;
     if (typeof window !== "undefined") {
       if (token) {
-        localStorage.setItem("auth_token", token);
+        localStorage.setItem(ACCESS_TOKEN_KEY, token);
       } else {
-        localStorage.removeItem("auth_token");
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
       }
     }
   }
 
   getToken(): string | null {
     return this.token;
+  }
+
+  /** Simpan/hapus refresh token (localStorage) — dipakai auto-refresh & logout. */
+  setRefreshToken(token: string | null) {
+    if (typeof window !== "undefined") {
+      if (token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, token);
+      } else {
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+      }
+    }
+  }
+
+  getRefreshToken(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  }
+
+  /** Hapus semua kredensial lokal (dipanggil saat refresh gagal). */
+  clearTokens() {
+    this.setToken(null);
+    this.setRefreshToken(null);
+  }
+
+  /**
+   * Auto-refresh: rotasi refresh token sekali lewat POST /auth/refresh, lalu
+   * ulangi permintaan asli dengan access token baru. Endpoint /auth/* tidak
+   * ikut di-refresh agar tidak terjadi loop (login/refresh/logout sendiri).
+   */
+  private refreshPromise: Promise<boolean> | null = null;
+
+  private tryRefresh(): Promise<boolean> {
+    // Satu refresh bersama untuk semua permintaan 401 yang terjadi bersamaan —
+    // refresh token bersifat rotasi sekali-pakai, jadi tidak boleh dua klien
+    // memakai token yang sama secara paralel.
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.doRefresh().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
+  }
+
+  private async doRefresh(): Promise<boolean> {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return false;
+    try {
+      const res = await fetch(`${this.baseUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) {
+        // Refresh token kedaluwarsa/dicabut — sesi tidak bisa diselamatkan.
+        this.clearTokens();
+        return false;
+      }
+      const data = await res.json();
+      const accessToken: string | undefined = data?.data?.access_token;
+      const newRefreshToken: string | undefined = data?.data?.refresh_token;
+      if (!accessToken) {
+        this.clearTokens();
+        return false;
+      }
+      this.setToken(accessToken);
+      if (newRefreshToken) this.setRefreshToken(newRefreshToken);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private static isAuthEndpoint(endpoint: string): boolean {
+    return endpoint.startsWith("/auth/");
   }
 
   private buildUrl(endpoint: string, params?: Record<string, string>): string {
@@ -61,13 +138,20 @@ class ApiClient {
     return url.toString();
   }
 
-  private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
     const { params, headers, timeout = DEFAULT_TIMEOUT, ...fetchOptions } = options;
 
-    const requestHeaders: HeadersInit = {
-      "Content-Type": "application/json",
-      ...headers,
-    };
+    // FormData harus dibiarkan tanpa Content-Type agar browser menuliskan
+    // boundary multipart sendiri.
+    const isFormData =
+      typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+
+    const requestHeaders: HeadersInit = isFormData
+      ? { ...headers }
+      : {
+          "Content-Type": "application/json",
+          ...headers,
+        };
 
     if (this.token) {
       (requestHeaders as Record<string, string>)["Authorization"] = `Bearer ${this.token}`;
@@ -93,10 +177,21 @@ class ApiClient {
         data = await response.json();
       } catch {
         data = null;
-      }	      if (!response.ok) {
-	        const message = data?.message || data?.error || "Terjadi kesalahan. Silakan coba kembali.";
-	        throw new ApiError(message, response.status, data);
-	      }
+      }
+      if (!response.ok) {
+        // Access token kedaluwarsa → coba rotasi refresh token, lalu ulangi
+        // permintaan ini sekali dengan token baru.
+        if (
+          response.status === 401 &&
+          !isRetry &&
+          !ApiClient.isAuthEndpoint(endpoint) &&
+          (await this.tryRefresh())
+        ) {
+          return this.request<T>(endpoint, options, true);
+        }
+        const message = data?.message || data?.error || "Terjadi kesalahan. Silakan coba kembali.";
+        throw new ApiError(message, response.status, data);
+      }
 
       // Backend mengembalikan { success, message?, data?, meta? }.
       // Envelope utuh dikembalikan agar pemanggil bisa mengakses success/message/meta.
@@ -140,6 +235,11 @@ class ApiClient {
 
   async delete<T>(endpoint: string, timeout?: number): Promise<T> {
     return this.request<T>(endpoint, { method: "DELETE", timeout });
+  }
+
+  /** Unggah berkas multipart (FormData) — dipakai unggah bukti pembayaran. */
+  async postForm<T>(endpoint: string, form: FormData, timeout?: number): Promise<T> {
+    return this.request<T>(endpoint, { method: "POST", body: form, timeout });
   }
 }
 

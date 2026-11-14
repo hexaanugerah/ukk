@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { galleryService } from "@/services/gallery.service";
-import type { CreateGalleryItemPayload, GalleryItem } from "@/types/gallery";
+import type { GalleryItem } from "@/types/gallery";
 
 export function useGallery(params?: { page?: number; limit?: number; category?: string }) {
   return useQuery({ queryKey: ["gallery", params], queryFn: () => galleryService.list(params) });
@@ -17,7 +17,7 @@ export function useGalleryItem(id: string) {
 export function useCreateGalleryItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateGalleryItemPayload) => galleryService.create(payload),
+    mutationFn: (payload: FormData) => galleryService.create(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["gallery"] }),
   });
 }
@@ -25,7 +25,7 @@ export function useCreateGalleryItem() {
 export function useUpdateGalleryItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateGalleryItemPayload> }) => galleryService.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: FormData }) => galleryService.update(id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["gallery"] }),
   });
 }

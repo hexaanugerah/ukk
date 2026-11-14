@@ -1,0 +1,14 @@
+# Local environment & secrets
+.env
+.env.*
+!.env.example
+
+# Uploaded media (managed by the application, not versioned)
+uploads/
+
+# Build artifacts
+bin/
+*.exe
+
+# Test artifacts
+coverage.out

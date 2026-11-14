@@ -1,4 +1,4 @@
-import type { CreateGalleryItemPayload, GalleryItem } from "@/types/gallery";
+import type { GalleryItem } from "@/types/gallery";
 import { axiosInstance as api } from "@/lib/axios";
 
 // Backend mendaftarkan endpoint admin galeri di path yang sama dengan
@@ -18,15 +18,19 @@ export const galleryService = {
     return data.data;
   },
 
-  /** Tambah foto ke galeri (admin only). */
-  async create(payload: CreateGalleryItemPayload): Promise<GalleryItem> {
-    const { data } = await api.post(BASE, payload);
+  /** Tambah foto ke galeri (admin only) — upload file multipart. */
+  async create(payload: FormData): Promise<GalleryItem> {
+    const { data } = await api.post(BASE, payload, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     return data.data;
   },
 
-  /** Perbarui foto galeri (admin only). */
-  async update(id: string, payload: Partial<CreateGalleryItemPayload>): Promise<GalleryItem> {
-    const { data } = await api.put(`${BASE}/${id}`, payload);
+  /** Perbarui foto galeri (admin only) — upload file multipart (gambar opsional). */
+  async update(id: string, payload: FormData): Promise<GalleryItem> {
+    const { data } = await api.put(`${BASE}/${id}`, payload, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     return data.data;
   },
 

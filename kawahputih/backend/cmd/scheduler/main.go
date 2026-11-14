@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -67,6 +68,12 @@ func (noopMidtransGateway) GetTransactionStatus(ctx context.Context, orderID str
 func (noopMidtransGateway) VerifySignature(orderID, statusCode, grossAmount, signatureKey string) bool {
 	return false
 }
+
+func (noopMidtransGateway) CreateQRIS(ctx context.Context, orderID string, grossAmount int64) (string, error) {
+	return "", errors.New("midtrans is not available in scheduler")
+}
+
+func (noopMidtransGateway) Configured() bool { return false }
 
 func main() {
 	cfg, err := config.Load()

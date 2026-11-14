@@ -24,6 +24,7 @@ export const ROUTES = {
   ADMIN_TICKETS: "/admin/tickets",
   ADMIN_BOOKINGS: "/admin/bookings",
   ADMIN_PAYMENTS: "/admin/payments",
+  ADMIN_PAYMENT_DESTINATIONS: "/admin/payment-destinations",
   ADMIN_VISITORS: "/admin/visitors",
   ADMIN_USERS: "/admin/users",
   ADMIN_CONTENT: "/admin/content",

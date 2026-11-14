@@ -33,4 +33,33 @@ export const staffService = {
     const response = await apiClient.patch<{ success: boolean; message?: string }>(`/admin/staff/${id}/status`, { status });
     if (!response.success) throw new StaffError(response.message || "Failed to update staff status");
   },
+
+  /** Create a new staff account (admin). Password harus memenuhi kebijakan backend. */
+  async create(payload: {
+    name: string;
+    email: string;
+    phone: string;
+    password: string;
+    role: string;
+    gate?: string;
+    shift?: string;
+  }): Promise<Staff> {
+    const response = await apiClient.post<{ success: boolean; message?: string; data?: Staff }>(
+      "/admin/staff",
+      payload
+    );
+    if (!response.success) throw new StaffError(response.message || "Gagal menambahkan petugas");
+    return (
+      response.data ?? {
+        id: "",
+        name: payload.name,
+        email: payload.email,
+        phone: payload.phone,
+        role: payload.role,
+        gate: payload.gate ?? "",
+        shift: payload.shift ?? "",
+        status: "AKTIF",
+      }
+    );
+  },
 };

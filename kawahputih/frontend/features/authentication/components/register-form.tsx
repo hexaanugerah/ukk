@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRegister } from "@/hooks/use-auth";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { validatePhoneFull } from "@/lib/phone";
 import { registerSchema, sanitizeInput, sanitizeEmail, type RegisterFormValues } from "../schemas/auth.schema";
 import { toast } from "sonner";
 
@@ -62,19 +64,14 @@ export function RegisterForm() {
     }
   };
 
-  // Validasi real-time untuk telepon
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+  // Validasi real-time untuk telepon (nomor lengkap E.164 dari PhoneInput)
+  const handlePhoneChange = (value: string) => {
     set("phone", value);
-    
+
     if (value) {
-      const cleaned = value.replace(/[\s-]/g, "");
-      let normalized = cleaned;
-      if (cleaned.startsWith("+62")) normalized = "0" + cleaned.slice(3);
-      else if (cleaned.startsWith("62")) normalized = "0" + cleaned.slice(2);
-      
-      if (!normalized.startsWith("08") || normalized.length < 10 || normalized.length > 13) {
-        setErrors((prev) => ({ ...prev, phone: "Format nomor telepon Indonesia tidak valid" }));
+      const validation = validatePhoneFull(value);
+      if (!validation.valid) {
+        setErrors((prev) => ({ ...prev, phone: validation.message! }));
       } else {
         setErrors((prev) => {
           const next = { ...prev };
@@ -165,7 +162,9 @@ export function RegisterForm() {
     setSubmitting(false);
 
     if (res.ok) {
-      toast.success("Registrasi berhasil", { description: "Selamat datang di Kawah Putih!" });
+      toast.success("Registrasi berhasil", {
+        description: "Link verifikasi telah dikirim ke email Anda. Verifikasi sebelum login berikutnya.",
+      });
     } else {
       setErrors({ root: res.error });
       toast.error("Registrasi gagal", { description: res.error });
@@ -203,13 +202,10 @@ export function RegisterForm() {
 
       <div>
         <label className={label}>No. Telepon (opsional)</label>
-        <Input 
-          type="tel" 
-          value={values.phone} 
+        <PhoneInput
+          value={values.phone ?? ""}
           onChange={handlePhoneChange}
-          placeholder="08xxxxxxxxxx"
-          aria-invalid={!!errors.phone}
-          aria-describedby={errors.phone ? "phone-error" : undefined}
+          invalid={!!errors.phone}
         />
         {errors.phone && <p id="phone-error" className="mt-1 text-xs text-red-600" role="alert">{errors.phone}</p>}
       </div>

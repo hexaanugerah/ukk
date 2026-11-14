@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   description: "Fasilitas dan layanan yang tersedia untuk kenyamanan pengunjung Kawah Putih Rancabali.",
 };
 
+// Konten fasilitas dikelola admin — render saat request.
+export const dynamic = "force-dynamic";
+
 const ICON_MAP: Record<string, typeof Car> = {
   car: Car,
   coffee: Coffee,

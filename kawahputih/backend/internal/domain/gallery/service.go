@@ -2,20 +2,35 @@ package gallery
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"io"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/KawahPutih/backend/pkg/apperror"
+	"github.com/KawahPutih/backend/pkg/response"
+	"github.com/go-playground/validator/v10"
 )
+
+var validate = validator.New()
+
+// MaxImageSize membatasi ukuran berkas gambar galeri.
+const MaxImageSize = 5 << 20 // 5 MB
+
+// allowedImageExts adalah ekstensi gambar yang boleh diunggah.
+var allowedImageExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true,
+}
 
 type Service struct {
 	repo        Repository
-	attachment  AttachmentStore
+	attachment  ImageStore
 	defaultBase string
 	mu          sync.Mutex
 }
 
-func NewService(repo Repository, attach AttachmentStore, defaultBase string) *Service {
+func NewService(repo Repository, attach ImageStore, defaultBase string) *Service {
 	if defaultBase == "" {
 		defaultBase = "/uploads/gallery"
 	}
@@ -26,25 +41,23 @@ func NewService(repo Repository, attach AttachmentStore, defaultBase string) *Se
 	}
 }
 
-func (s *Service) Create(ctx context.Context, uploaderID string, req CreateRequest) (*Item, error) {
-	if err := ValidateRequest(req); err != nil {
+// ImageUpload adalah berkas gambar yang diunggah admin.
+type ImageUpload struct {
+	Ext    string // termasuk titik, contoh ".png" — sudah divalidasi
+	Reader io.Reader
+}
+
+func (s *Service) Create(ctx context.Context, uploaderID string, req CreateRequest, image *ImageUpload) (*Item, error) {
+	if errs := validateStruct(req); len(errs) > 0 {
+		return nil, apperror.Validation("Data galeri tidak valid.").WithCode("GALLERY_003")
+	}
+	if image == nil || image.Ext == "" || image.Reader == nil {
+		return nil, apperror.Validation("File gambar wajib diunggah.").WithCode("GALLERY_004")
+	}
+
+	imageURL, err := s.storeImage(ctx, uploaderID, image)
+	if err != nil {
 		return nil, err
-	}
-
-	imageURL := req.ImageURL
-	if req.ImageFile != "" {
-		if s.attachment == nil {
-			return nil, apperror.Internal(fmt.Errorf("gallery attachment store not configured"))
-		}
-		target, err := s.attachment.Store(ctx, req.ImageFile, uploaderID)
-		if err != nil {
-			return nil, apperror.Validation("Gagal menyimpan file galeri: " + err.Error()).WithCode("GALLERY_001")
-		}
-		imageURL = target
-	}
-
-	if imageURL == "" {
-		return nil, apperror.Validation("Gambar tidak boleh kosong.").WithCode("GALLERY_010")
 	}
 
 	item := &Item{
@@ -60,34 +73,24 @@ func (s *Service) Create(ctx context.Context, uploaderID string, req CreateReque
 	return item, nil
 }
 
-func (s *Service) Update(ctx context.Context, id, actorID string, req UpdateRequest) (*Item, error) {
-	if err := ValidateRequest(req); err != nil {
-		return nil, err
+func (s *Service) Update(ctx context.Context, id, actorID string, req UpdateRequest, image *ImageUpload) (*Item, error) {
+	if errs := validateStruct(req); len(errs) > 0 {
+		return nil, apperror.Validation("Data galeri tidak valid.").WithCode("GALLERY_003")
 	}
 	item, err := s.mustFind(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	newURL := item.ImageURL
-	if req.ImageFile != "" {
-		if s.attachment == nil {
-			return nil, apperror.Internal(fmt.Errorf("gallery attachment store not configured"))
-		}
-		target, err := s.attachment.Store(ctx, req.ImageFile, actorID)
+	if image != nil {
+		newURL, err := s.storeImage(ctx, actorID, image)
 		if err != nil {
-			return nil, apperror.Validation("Gagal memperbarui file galeri: " + err.Error()).WithCode("GALLERY_002")
+			return nil, err
 		}
-		newURL = target
-	} else if req.ImageURL != "" {
-		newURL = req.ImageURL
-	}
-	if newURL == "" {
-		return nil, apperror.Validation("Gambar tidak boleh kosong.").WithCode("GALLERY_011")
+		item.ImageURL = newURL
 	}
 
 	item.Title = req.Title
-	item.ImageURL = newURL
 	item.Category = req.Category
 	item.SortOrder = req.SortOrder
 	item.UpdatedBy = actorID
@@ -95,6 +98,17 @@ func (s *Service) Update(ctx context.Context, id, actorID string, req UpdateRequ
 		return nil, apperror.Internal(err)
 	}
 	return item, nil
+}
+
+func (s *Service) storeImage(ctx context.Context, uploaderID string, image *ImageUpload) (string, error) {
+	if s.attachment == nil {
+		return "", apperror.Internal(errors.New("gallery image store not configured"))
+	}
+	target, err := s.attachment.Save(ctx, uploaderID, image.Ext, image.Reader)
+	if err != nil {
+		return "", apperror.Validation("Gagal menyimpan file galeri: " + err.Error()).WithCode("GALLERY_001")
+	}
+	return target, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id, actorID string) error {
@@ -143,50 +157,53 @@ func (s *Service) mustFind(ctx context.Context, id string) (*Item, error) {
 	return item, nil
 }
 
-type AttachmentStore interface {
-	Store(ctx context.Context, fileRef, uploaderID string) (string, error)
+// ImageStore menyimpan berkas gambar galeri dan mengembalikan URL publiknya.
+type ImageStore interface {
+	Save(ctx context.Context, uploaderID, ext string, src io.Reader) (string, error)
 }
 
-func ValidateRequest(req interface{}) error {
-	if len(Validate(req)) > 0 {
-		return apperror.Validation("Data galeri tidak valid.").WithCode("GALLERY_003")
+func validateStruct(s interface{}) []response.FieldError {
+	err := validate.Struct(s)
+	if err == nil {
+		return nil
 	}
-	switch value := req.(type) {
-	case CreateRequest:
-		if (value.ImageURL == "") == (value.ImageFile == "") {
-			return apperror.Validation("Pilih satu sumber gambar: URL atau referensi file.").WithCode("GALLERY_003")
-		}
-		if (value.ImageURL != "" && !isHTTPImageURL(value.ImageURL)) || (value.ImageFile != "" && !isValidImageFileRef(value.ImageFile)) {
-			return apperror.Validation("Sumber gambar tidak valid.").WithCode("GALLERY_003")
-		}
-	case UpdateRequest:
-		if value.ImageURL != "" && value.ImageFile != "" {
-			return apperror.Validation("Pilih satu sumber gambar: URL atau referensi file.").WithCode("GALLERY_003")
-		}
-		if (value.ImageURL != "" && !isHTTPImageURL(value.ImageURL)) || (value.ImageFile != "" && !isValidImageFileRef(value.ImageFile)) {
-			return apperror.Validation("Sumber gambar tidak valid.").WithCode("GALLERY_003")
-		}
-	default:
-		return apperror.Validation("Jenis permintaan galeri tidak didukung.").WithCode("GALLERY_003")
+	var out []response.FieldError
+	for _, fe := range err.(validator.ValidationErrors) {
+		out = append(out, response.FieldError{Field: fe.Field(), Message: fe.Field() + " is invalid"})
 	}
-	return nil
+	return out
+}
+
+func ValidateImageExt(ext string) bool {
+	return allowedImageExts[strings.ToLower(ext)]
 }
 
 type localDiskStore struct {
-	base string
-	mu   sync.Mutex
+	dir       string
+	urlPrefix string
+	mu        sync.Mutex
 }
 
-func NewLocalDiskStore(base string) AttachmentStore {
-	return &localDiskStore{base: base}
+// NewLocalDiskStore menyimpan berkas ke dir pada disk dan mengembalikan
+// URL dengan awalan urlPrefix (harus didaftarkan sebagai rute statis).
+func NewLocalDiskStore(dir, urlPrefix string) ImageStore {
+	return &localDiskStore{dir: dir, urlPrefix: urlPrefix}
 }
 
-func (l *localDiskStore) Store(ctx context.Context, fileRef, uploaderID string) (string, error) {
+func (l *localDiskStore) Save(_ context.Context, _, ext string, src io.Reader) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.base == "" {
-		return "", fmt.Errorf("gallery attachment base path not configured")
+	if l.dir == "" || l.urlPrefix == "" {
+		return "", errors.New("gallery image store path not configured")
 	}
-	return fmt.Sprintf("%s/demo-%s.jpg", l.base, uploaderID), nil
+	if err := ensureDir(l.dir); err != nil {
+		return "", err
+	}
+
+	name := newImageFileName(ext)
+	if err := writeFile(filepath.Join(l.dir, name), src); err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(filepath.Join(l.urlPrefix, name)), nil
 }

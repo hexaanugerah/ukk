@@ -52,6 +52,9 @@ const (
 	RoleManager    = "MANAGER"
 	RolePetugas    = "PETUGAS"
 	RolePengunjung = "PENGUNJUNG"
+	// ROLE-20: super_admin adalah satu-satunya role yang boleh mengelola
+	// penetapan role via /super-admin/* (lihat middleware.RequireRole di routes).
+	RoleSuperAdmin = "super_admin"
 )
 
 const DefaultRoleName = RolePengunjung

@@ -3,7 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { forgotPasswordSchema, sanitizeEmail } from "../schemas/auth.schema";
+import { authService, AuthError } from "@/services/auth.api.service";
 
 export function ForgotPasswordForm() {
   const [sent, setSent] = useState(false);
@@ -22,7 +24,7 @@ export function ForgotPasswordForm() {
     }
   };
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = forgotPasswordSchema.safeParse({ email: sanitizeEmail(email) });
     if (!parsed.success) {
@@ -31,10 +33,18 @@ export function ForgotPasswordForm() {
     }
     setError(null);
     setSending(true);
-    setTimeout(() => {
-      setSending(false);
+    try {
+      // Panggil backend nyata: POST /auth/password/forgot mengirim link reset
+      // ke email. Respons selalu sukses agar keberadaan email tidak terbocorkan.
+      await authService.forgotPassword(parsed.data.email);
       setSent(true);
-    }, 600);
+    } catch (err) {
+      const message = err instanceof AuthError ? err.message : "Gagal mengirim link reset.";
+      setError(message);
+      toast.error("Gagal mengirim link reset", { description: message });
+    } finally {
+      setSending(false);
+    }
   }
 
   if (sent) {

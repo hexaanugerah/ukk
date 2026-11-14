@@ -14,11 +14,24 @@ type Repository interface {
 	FindLatestByBooking(ctx context.Context, bookingID string) (*Payment, error)
 	FindByMidtransOrderID(ctx context.Context, orderID string) (*Payment, error)
 	FindByEWallet(ctx context.Context, ewallet string) (*Payment, error)
-	ListAll(ctx context.Context, offset, limit int, status string) ([]Payment, int64, error)
+	ListAll(ctx context.Context, filter ListFilter) ([]Payment, int64, error)
 	ExpirePendingByBooking(ctx context.Context, bookingID string) (int64, error)
 	CountByStatus(ctx context.Context) (map[string]int64, error)
 	CountPending(ctx context.Context) (int64, error)
 	SumPaidBetween(ctx context.Context, from, to string) (int64, error)
+	MethodTotalsBetween(ctx context.Context, from, to string) ([]MethodTotal, error)
+	SumSettledBetween(ctx context.Context, from, to string, settled bool) (int64, error)
+}
+
+// ListFilter adalah filter daftar pembayaran admin.
+type ListFilter struct {
+	Offset int
+	Limit  int
+	Status string
+	Method string
+	From   string
+	To     string
+	Query  string
 }
 
 type repository struct{ db *gorm.DB }
@@ -81,17 +94,30 @@ func (r *repository) FindByEWallet(ctx context.Context, ewallet string) (*Paymen
 	return &p, nil
 }
 
-func (r *repository) ListAll(ctx context.Context, offset, limit int, status string) ([]Payment, int64, error) {
+func (r *repository) ListAll(ctx context.Context, f ListFilter) ([]Payment, int64, error) {
 	q := r.db.WithContext(ctx).Model(&Payment{})
-	if status != "" {
-		q = q.Where("status = ?", status)
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.Method != "" {
+		q = q.Where("method = ?", f.Method)
+	}
+	if f.From != "" {
+		q = q.Where("DATE(created_at) >= ?", f.From)
+	}
+	if f.To != "" {
+		q = q.Where("DATE(created_at) <= ?", f.To)
+	}
+	if f.Query != "" {
+		like := "%" + f.Query + "%"
+		q = q.Where("id LIKE ? OR booking_id LIKE ? OR reference LIKE ?", like, like, like)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var out []Payment
-	if err := q.Order("created_at DESC").Offset(offset).Limit(limit).Find(&out).Error; err != nil {
+	if err := q.Order("created_at DESC").Offset(f.Offset).Limit(f.Limit).Find(&out).Error; err != nil {
 		return nil, 0, err
 	}
 	return out, total, nil
@@ -132,6 +158,27 @@ func (r *repository) SumPaidBetween(ctx context.Context, from, to string) (int64
 	var sum int64
 	err := r.db.WithContext(ctx).Model(&Payment{}).
 		Where("status = ? AND DATE(paid_at) >= ? AND DATE(paid_at) <= ?", StatusPaid, from, to).
+		Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error
+	return sum, err
+}
+
+func (r *repository) MethodTotalsBetween(ctx context.Context, from, to string) ([]MethodTotal, error) {
+	var out []MethodTotal
+	err := r.db.WithContext(ctx).Model(&Payment{}).
+		Select("method, COUNT(*) as count, COALESCE(SUM(amount), 0) as total").
+		Where("status = ? AND DATE(paid_at) >= ? AND DATE(paid_at) <= ?", StatusPaid, from, to).
+		Group("method").Order("total DESC").Scan(&out).Error
+	return out, err
+}
+
+func (r *repository) SumSettledBetween(ctx context.Context, from, to string, settled bool) (int64, error) {
+	var sum int64
+	status := SettlementUnsettled
+	if settled {
+		status = SettlementSettled
+	}
+	err := r.db.WithContext(ctx).Model(&Payment{}).
+		Where("status = ? AND settlement_status = ? AND DATE(paid_at) >= ? AND DATE(paid_at) <= ?", StatusPaid, status, from, to).
 		Select("COALESCE(SUM(amount), 0)").Scan(&sum).Error
 	return sum, err
 }
